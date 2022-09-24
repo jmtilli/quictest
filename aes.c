@@ -210,6 +210,9 @@ void mix_columns(struct aes_state *s)
 {
 	uint8_t a0j, a1j, a2j, a3j;
 	uint8_t b0j, b1j, b2j, b3j;
+	uint8_t a0j_2, a1j_2, a2j_2, a3j_2;
+	uint8_t a0j_3, a1j_3, a2j_3, a3j_3;
+
 	int i;
 	for (i = 0; i < 4; i++)
 	{
@@ -217,10 +220,18 @@ void mix_columns(struct aes_state *s)
 		a1j = s->state[4*i+1];
 		a2j = s->state[4*i+2];
 		a3j = s->state[4*i+3];
-		b0j = gmul(a0j,2) ^ gmul(a1j,3) ^ gmul(a2j,1) ^ gmul(a3j,1);
-		b1j = gmul(a0j,1) ^ gmul(a1j,2) ^ gmul(a2j,3) ^ gmul(a3j,1);
-		b2j = gmul(a0j,1) ^ gmul(a1j,1) ^ gmul(a2j,2) ^ gmul(a3j,3);
-		b3j = gmul(a0j,3) ^ gmul(a1j,1) ^ gmul(a2j,1) ^ gmul(a3j,2);
+		a0j_2 = gmul(a0j,2);
+		a1j_2 = gmul(a1j,2);
+		a2j_2 = gmul(a2j,2);
+		a3j_2 = gmul(a3j,2);
+		a0j_3 = a0j_2 ^ a0j;
+		a1j_3 = a1j_2 ^ a1j;
+		a2j_3 = a2j_2 ^ a2j;
+		a3j_3 = a3j_2 ^ a3j;
+		b0j =      a0j_2  ^      a1j_3  ^      a2j    ^      a3j;
+		b1j =      a0j    ^      a1j_2  ^      a2j_3  ^      a3j;
+		b2j =      a0j    ^      a1j    ^      a2j_2  ^      a3j_3;
+		b3j =      a0j_3  ^      a1j    ^      a2j    ^      a3j_2;
 		s->state[4*i+0] = b0j;
 		s->state[4*i+1] = b1j;
 		s->state[4*i+2] = b2j;
@@ -328,7 +339,7 @@ int main(int argc, char **argv)
 	uint8_t data[16] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
 	uint8_t expected[16] = {0x69, 0xc4, 0xe0, 0xd8, 0x6a, 0x7b, 0x04, 0x30, 0xd8, 0xcd, 0xb7, 0x80, 0x70, 0xb4, 0xc5, 0x5a};
 	struct expanded_key ex;
-	int i;
+	int i, j;
 	//key[0] = 0x2b7e1516U;
 	//key[1] = 0x28aed2a6U;
 	//key[2] = 0xabf71588U;
@@ -379,5 +390,16 @@ int main(int argc, char **argv)
 		printf("%.2x\n", s.state[i]);
 	}
 	printf("%.2x\n", gmul(0x53, 0xca)); // 0x01 is correct, ok
+
+	// Perf test, QUIC packet
+	// 1.74 seconds per 100k packets
+	// 57KPPS (566 Mbps)
+	for (j = 0; j < 100*1000; j++)
+	{
+		for (i = 0; i < 67; i++)
+		{
+			aes128(&ex, data);
+		}
+	}
 	return 0;
 }
