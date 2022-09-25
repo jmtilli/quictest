@@ -41,12 +41,14 @@ int prepare_get(struct quic_ctx *ctx, uint16_t new_first_nondecrypted_off)
 	{
 		memcpy(mask, ctx->cur_iv, 16);
 		aes128(&ctx->aes_exp, mask);
+		/*
 		printf("Full IV before:");
 		for (i = 0; i < 16; i++)
 		{
 			printf(" %.2x", ctx->cur_iv[i]);
 		}
 		printf("\n");
+		*/
 		for (i = 15; i >= 12; i--) // increment counter
 		{
 			ctx->cur_iv[i]++;
@@ -55,33 +57,36 @@ int prepare_get(struct quic_ctx *ctx, uint16_t new_first_nondecrypted_off)
 				break;
 			}
 		}
+		/*
 		printf("Full IV after:");
 		for (i = 0; i < 16; i++)
 		{
 			printf(" %.2x", ctx->cur_iv[i]);
 		}
 		printf("\n");
+		*/
 		int maxbound = 16;
 		int maxbound2 =
-			((int)ctx->len) - ((int)ctx->pnumlen) - ((int)ctx->first_nondecrypted_off);
+			((int)ctx->payoff) + ((int)ctx->len) - ((int)ctx->pnumlen) - ((int)ctx->first_nondecrypted_off);
 		if (maxbound2 < maxbound)
 		{
 			maxbound = maxbound2;
 		}
 		if (maxbound2 == 0)
 		{
+			//printf("Err %d %d\n", (int)ctx->first_nondecrypted_off, (int)new_first_nondecrypted_off);
 			return -ENODATA;
 		}
-		printf("Max bound: %d\n", maxbound);
-		printf("Old bytes:");
+		//printf("Max bound: %d\n", maxbound);
+		//printf("Old bytes:");
 		for (i = 0; i < maxbound; i++)
 		{
-			printf(" %.2x", ctx->quic_data[ctx->first_nondecrypted_off]);
+			//printf(" %.2x", ctx->quic_data[ctx->first_nondecrypted_off]);
 			ctx->quic_data[ctx->first_nondecrypted_off++] ^= mask[i];
-			printf(" (mask %.2x)", (int)mask[i]);
+			//printf(" (mask %.2x)", (int)mask[i]);
 			//ctx->first_nondecrypted_off++;
 		}
-		printf("\n");
+		//printf("\n");
 		if (ctx->first_nondecrypted_off >= new_first_nondecrypted_off)
 		{
 			break;
@@ -159,7 +164,7 @@ int quic_init(struct quic_ctx *ctx, const uint8_t *data, size_t siz)
 	ctx->cur_iv[12] = 0;
 	ctx->cur_iv[13] = 0;
 	ctx->cur_iv[14] = 0;
-	ctx->cur_iv[15] = 1;
+	ctx->cur_iv[15] = 2;
 	printf("Full IV:");
 	for (i = 0; i < 16; i++)
 	{
@@ -313,6 +318,10 @@ int quic_init(struct quic_ctx *ctx, const uint8_t *data, size_t siz)
 	ctx->first_nondecrypted_off = ctx->payoff;
 
 
+	//ctx->cur_iv[4] ^= (ctx->pnum>>24)&0xFF;
+	//ctx->cur_iv[5] ^= (ctx->pnum>>16)&0xFF;
+	//ctx->cur_iv[6] ^= (ctx->pnum>>8)&0xFF;
+	//ctx->cur_iv[7] ^= (ctx->pnum>>0)&0xFF;
 	ctx->cur_iv[8] ^= (ctx->pnum>>24)&0xFF;
 	ctx->cur_iv[9] ^= (ctx->pnum>>16)&0xFF;
 	ctx->cur_iv[10] ^= (ctx->pnum>>8)&0xFF;
@@ -369,7 +378,6 @@ d1 c4 e8 6c 01 bb 05 55 be 48
 */
 
 // QUIC data, www.google.com
-/*
 const uint8_t quic_data[] = {
 0xc9, 0x00, 0x00, 0x00, 0x01, 0x10,
 0x06, 0x7f, 0x7d, 0x53, 0x54, 0x81, 0xef, 0x9e, 0x37, 0xbf, 0x1f, 0x3e, 0x42, 0xb8, 0x5e, 0xa8,
@@ -458,8 +466,8 @@ const uint8_t quic_data[] = {
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
-*/
 
+/*
 const uint8_t quic_data[] = {
 0xc0, 0x00, 0x00, 0x00, 0x01, 0x08, 0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08, 0x00, 0x00, 0x44, 0x9e, 0x7b, 0x9a, 0xec, 0x34, 0xd1, 0xb1, 0xc9, 0x8d, 0xd7, 0x68, 0x9f, 0xb8, 0xec, 0x11,
 0xd2, 0x42, 0xb1, 0x23, 0xdc, 0x9b, 0xd8, 0xba, 0xb9, 0x36, 0xb4, 0x7d, 0x92, 0xec, 0x35, 0x6c, 0x0b, 0xab, 0x7d, 0xf5, 0x97, 0x6d, 0x27, 0xcd, 0x44, 0x9f, 0x63, 0x30, 0x00, 0x99, 0xf3, 0x99,
@@ -500,6 +508,7 @@ const uint8_t quic_data[] = {
 0x7e, 0x78, 0xbf, 0xe7, 0x06, 0xca, 0x4c, 0xf5, 0xe9, 0xc5, 0x45, 0x3e, 0x9f, 0x7c, 0xfd, 0x2b, 0x8b, 0x4c, 0x8d, 0x16, 0x9a, 0x44, 0xe5, 0x5c, 0x88, 0xd4, 0xa9, 0xa7, 0xf9, 0x47, 0x42, 0x41,
 0xe2, 0x21, 0xaf, 0x44, 0x86, 0x00, 0x18, 0xab, 0x08, 0x56, 0x97, 0x2e, 0x19, 0x4c, 0xd9, 0x34
 };
+*/
 
 
 int main(int argc, char **argv)
@@ -509,16 +518,23 @@ int main(int argc, char **argv)
 	int cnt = 0;
 	int new_first_nondecrypted_off;
 	printf("%d\n", quic_init(&ctx, quic_data, sizeof(quic_data)));
+	printf("sz %zu\n", sizeof(quic_data));
+	printf("Payoff %d\n", (int)ctx.payoff);
+	printf("ctx.len %d\n", (int)ctx.len);
+	printf("ctx.pnumlen %d\n", (int)ctx.pnumlen);
 	new_first_nondecrypted_off = ((int)ctx.payoff) + ((int)ctx.len) - ((int)ctx.pnumlen);
 	printf("%d\n", prepare_get(&ctx, new_first_nondecrypted_off));
-	for (i = ctx.payoff; i < new_first_nondecrypted_off; i++)
+	//for (i = ctx.payoff; i < new_first_nondecrypted_off; i++)
+	for (i = ctx.payoff; i < ctx.payoff+16; i++)
 	{
 		printf("%.2x ", ctx.quic_data[i]);
 		cnt++;
-		if ((cnt % 16) == 0)
+		if ((cnt % 16) == 0 && i != ctx.payoff+16-1)
 		{
 			printf("\n");
 		}
 	}
+	printf("\n");
+	//printf("Expected: 06 00 40 f1 01 00 00 ed 03 03 eb f8 fa 56 f1 29 ..\n");
 	return 0;
 }
