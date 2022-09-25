@@ -333,30 +333,57 @@ void hkdf_expand(void *result, uint16_t result_len,
 	}
 }
 
-void hkdf_expand_label(void *result, uint16_t result_len,
-                       const void *label, uint8_t label_len,
-                       const void *context, uint8_t context_len,
-                       const uint8_t prk[32])
+void hkdf_form_label(char hkdf_label[520], uint16_t *hkdf_label_len,
+                     const void *label, uint8_t label_len,
+                     const void *context, uint8_t context_len,
+		     uint16_t result_len)
 {
-	char hkdf_label[512];
 	size_t off = 0;
+	const size_t siz_hkdf_label = 520;
+	if (hkdf_label == NULL || hkdf_label_len == NULL)
+	{
+		abort();
+	}
 	hkdf_label[off++] = (result_len>>8)&0xFF;
 	hkdf_label[off++] = (result_len>>0)&0xFF;
+	hkdf_label[off++] = (char)(label_len+6);
 	memcpy(hkdf_label+off, "tls13 ", 6);
 	off += 6;
-	if (off + label_len > 512)
+	if (off + label_len > siz_hkdf_label)
 	{
 		abort();
 	}
 	memcpy(hkdf_label+off, label, label_len);
 	off += label_len;
-	if (off + context_len > 512)
+	if (off + 1 > siz_hkdf_label)
+	{
+		abort();
+	}
+	hkdf_label[off++] = (char)context_len;
+	if (off + context_len > siz_hkdf_label)
 	{
 		abort();
 	}
 	memcpy(hkdf_label+off, context, context_len);
 	off += context_len;
-	hkdf_expand(result, result_len, hkdf_label, off, prk);
+	*hkdf_label_len = off;
+}
+
+void hkdf_expand_label(void *result, uint16_t result_len,
+                       const void *label, uint8_t label_len,
+                       const void *context, uint8_t context_len,
+                       const uint8_t prk[32])
+{
+	char hkdf_label[520];
+	uint16_t hkdf_label_len = 0;
+	hkdf_form_label(hkdf_label, &hkdf_label_len, label, label_len, context, context_len, result_len);
+	hkdf_expand(result, result_len, hkdf_label, hkdf_label_len, prk);
+}
+void hkdf_expand_label_precalc(void *result, uint16_t result_len,
+                               const char hkdf_label[520], uint16_t hkdf_label_len,
+                               const uint8_t prk[32])
+{
+	hkdf_expand(result, result_len, hkdf_label, hkdf_label_len, prk);
 }
 
 void hkdf_test1(void)
@@ -443,6 +470,110 @@ void hkdf_test(void)
 	hkdf_test3();
 }
 
+void quic_test()
+{
+	char hkdf_label1[520] = {};
+	char hkdf_label2[520] = {};
+	char hkdf_label3[520] = {};
+	char hkdf_label4[520] = {};
+	char hkdf_label5[520] = {};
+	uint16_t hkdf_label1_len = 0;
+	uint16_t hkdf_label2_len = 0;
+	uint16_t hkdf_label3_len = 0;
+	uint16_t hkdf_label4_len = 0;
+	uint16_t hkdf_label5_len = 0;
+	const char *label;
+	uint8_t dstconnid[] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08}; // example
+	const uint8_t initial_salt[] = {0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3, 0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8, 0x0c, 0xad, 0xcc, 0xbb, 0x7f, 0x0a}; // constant
+	uint8_t initial_secret[32];
+	uint8_t client_initial_secret[32];
+	uint8_t key[16];
+	uint8_t iv[12];
+	uint8_t hp[16];
+	uint16_t i;
+
+	label = "client in";
+	hkdf_form_label(hkdf_label1, &hkdf_label1_len, label, strlen(label), "", 0, 32);
+	for (i = 0; i < hkdf_label1_len; i++)
+	{
+		printf("%.2x ", (uint8_t)hkdf_label1[i]);
+	}
+	printf("\n");
+	printf("expected: 00200f746c73313320636c69656e7420696e00\n");
+
+	label = "server in";
+	hkdf_form_label(hkdf_label2, &hkdf_label2_len, label, strlen(label), "", 0, 32);
+	for (i = 0; i < hkdf_label2_len; i++)
+	{
+		printf("%.2x ", (uint8_t)hkdf_label2[i]);
+	}
+	printf("\n");
+	printf("expected: 00200f746c7331332073657276657220696e00\n");
+
+	label = "quic key";
+	hkdf_form_label(hkdf_label3, &hkdf_label3_len, label, strlen(label), "", 0, 16);
+	for (i = 0; i < hkdf_label3_len; i++)
+	{
+		printf("%.2x ", (uint8_t)hkdf_label3[i]);
+	}
+	printf("\n");
+	printf("expected: 00100e746c7331332071756963206b657900\n");
+
+	label = "quic iv";
+	hkdf_form_label(hkdf_label4, &hkdf_label4_len, label, strlen(label), "", 0, 12);
+	for (i = 0; i < hkdf_label4_len; i++)
+	{
+		printf("%.2x ", (uint8_t)hkdf_label4[i]);
+	}
+	printf("\n");
+	printf("expected: 000c0d746c733133207175696320697600\n");
+
+	label = "quic hp";
+	hkdf_form_label(hkdf_label5, &hkdf_label5_len, label, strlen(label), "", 0, 16);
+	for (i = 0; i < hkdf_label5_len; i++)
+	{
+		printf("%.2x ", (uint8_t)hkdf_label5[i]);
+	}
+	printf("\n");
+	printf("expected: 00100d746c733133207175696320687000\n");
+
+	hkdf_extract(initial_secret, initial_salt, sizeof(initial_salt), dstconnid, sizeof(dstconnid));
+	for (i = 0; i < 32; i++)
+	{
+		printf("%.2x ", (uint8_t)initial_secret[i]);
+	}
+	printf("\n");
+	printf("expected: 7db5df06e7a69e432496adedb00851923595221596ae2ae9fb8115c1e9ed0a44\n");
+	hkdf_expand_label_precalc(client_initial_secret, 32, hkdf_label1, hkdf_label1_len, initial_secret);
+	for (i = 0; i < 32; i++)
+	{
+		printf("%.2x ", (uint8_t)client_initial_secret[i]);
+	}
+	printf("\n");
+	printf("expected: c00cf151ca5be075ed0ebfb5c80323c42d6b7db67881289af4008f1f6c357aea\n");
+	hkdf_expand_label_precalc(key, 16, hkdf_label3, hkdf_label3_len, client_initial_secret);
+	for (i = 0; i < 16; i++)
+	{
+		printf("%.2x ", (uint8_t)key[i]);
+	}
+	printf("\n");
+	printf("expected: 1f369613dd76d5467730efcbe3b1a22d\n");
+	hkdf_expand_label_precalc(iv, 12, hkdf_label4, hkdf_label4_len, client_initial_secret);
+	for (i = 0; i < 12; i++)
+	{
+		printf("%.2x ", (uint8_t)iv[i]);
+	}
+	printf("\n");
+	printf("expected: fa044b2f42a3fd3b46fb255c\n");
+	hkdf_expand_label_precalc(hp, 16, hkdf_label5, hkdf_label5_len, client_initial_secret);
+	for (i = 0; i < 16; i++)
+	{
+		printf("%.2x ", (uint8_t)hp[i]);
+	}
+	printf("\n");
+	printf("expected: 9f50449e04a0e810283a1e9933adedd2\n");
+}
+
 /*
  * HMAC_SHA256("key", "The quick brown fox jumps over the lazy dog")
  * = f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8
@@ -486,5 +617,7 @@ int main(int argc, char **argv)
 	printf("\n");
 	printf("---\n");
 	hkdf_test();
+	printf("---\n");
+	quic_test();
 	return 0;
 }
