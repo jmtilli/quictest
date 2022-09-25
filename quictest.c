@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <string.h>
 #include <stdio.h>
 #include <errno.h>
@@ -24,7 +25,6 @@ struct quic_ctx {
 	uint16_t tokenoff;
 	uint16_t pnumoff;
 	uint16_t payoff;
-	uint16_t paylen;
 	uint16_t len;
 	uint8_t pnumlen;
 	uint32_t pnum;
@@ -535,6 +535,10 @@ int main(int argc, char **argv)
 		}
 	}
 	printf("\n");
+	if (memmem(ctx.quic_data+ctx.payoff, ctx.len-ctx.pnumlen, "www.google.com", strlen("www.google.com")) != 0)
+	{
+		printf("Found SNI!\n");
+	}
 	//printf("Expected: 06 00 40 f1 01 00 00 ed 03 03 eb f8 fa 56 f1 29 ..\n");
 	return 0;
 }
