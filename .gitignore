@@ -4,3 +4,4 @@
 *.d
 /aestest
 /hkdftest
+/quictest
