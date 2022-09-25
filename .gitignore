@@ -1,1 +1,6 @@
 /a.out
+/.stir.db
+*.o
+*.d
+/aestest
+/hkdftest

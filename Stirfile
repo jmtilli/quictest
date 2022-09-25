@@ -1,0 +1,26 @@
+@toplevel
+@strict
+
+$CC ?= "cc"
+$CFLAGS ?= ["-O3"]
+$LDFLAGS ?= []
+
+$SOURCES = ["aes.c", "aestest.c", "hkdf.c", "hkdftest.c"]
+$OBJS = @sufsuball($SOURCES, ".c", ".o")
+$DEPS = @sufsuball($SOURCES, ".c", ".d")
+
+@phonyrule: 'all': 'aestest' 'hkdftest'
+
+'aestest': 'aestest.o' 'aes.o'
+@	["cc", @$CFLAGS, @$LDFLAGS, "-o", $@, @$^]
+
+'hkdftest': 'hkdftest.o' 'hkdf.o'
+@	["cc", @$CFLAGS, @$LDFLAGS, "-o", $@, @$^]
+
+@patrule: $(OBJS): '%.o': '%.c' '%.d'
+@	[$(CC), @$(CFLAGS), "-c", "-o", $@, $<]
+
+@patrule: $(DEPS): '%.d': '%.c'
+@	[$(CC), @$(CFLAGS), "-MM", "-o", $@, $<]
+
+@cdepincludes @autophony @autotarget @ignore [@$(DEPS)]
