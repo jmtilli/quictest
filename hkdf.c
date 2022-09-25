@@ -322,6 +322,7 @@ void hkdf_expand(void *result, uint16_t result_len,
 		memcpy(Tinfo, T, 32);
 		memcpy(Tinfo+32, info, info_len);
 		Tinfo[32+info_len] = iter+1;
+		Tinfo_len = 32+info_len+1;
 		if (result_len < tocopy)
 		{
 			tocopy = result_len;
