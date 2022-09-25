@@ -134,43 +134,53 @@ int quic_init(struct quic_ctx *ctx, const uint8_t *data, size_t siz)
 	}
 
 	hkdf_extract(initial_secret, initial_salt, sizeof(initial_salt), &data[ctx->dstcidoff], ctx->dstcidlen);
+#ifdef QUICDEBUG
 	printf("Initial secret:");
 	for (i = 0; i < 32; i++)
 	{
 		printf(" %.2x", initial_secret[i]);
 	}
 	printf("\n");
+#endif
 	hkdf_expand_label_precalc(client_initial_secret, 32, precalc_label_client_in, sizeof(precalc_label_client_in), initial_secret);
+#ifdef QUICDEBUG
 	printf("Client initial secret:");
 	for (i = 0; i < 32; i++)
 	{
 		printf(" %.2x", client_initial_secret[i]);
 	}
 	printf("\n");
+#endif
 	hkdf_expand_label_precalc(hp, 16, precalc_label_quic_hp, sizeof(precalc_label_quic_hp), client_initial_secret);
+#ifdef QUICDEBUG
 	printf("HP key:");
 	for (i = 0; i < 16; i++)
 	{
 		printf(" %.2x", hp[i]);
 	}
 	printf("\n");
+#endif
 	hkdf_expand_label_precalc(ctx->cur_iv, 12, precalc_label_quic_iv, sizeof(precalc_label_quic_iv), client_initial_secret);
+#ifdef QUICDEBUG
 	printf("IV:");
 	for (i = 0; i < 12; i++)
 	{
 		printf(" %.2x", ctx->cur_iv[i]);
 	}
 	printf("\n");
+#endif
 	ctx->cur_iv[12] = 0;
 	ctx->cur_iv[13] = 0;
 	ctx->cur_iv[14] = 0;
 	ctx->cur_iv[15] = 2;
+#ifdef QUICDEBUG
 	printf("Full IV:");
 	for (i = 0; i < 16; i++)
 	{
 		printf(" %.2x", ctx->cur_iv[i]);
 	}
 	printf("\n");
+#endif
 	aes_key[0] =
 		(((uint32_t)hp[0])<<24) |
 		(((uint32_t)hp[1])<<16) |
@@ -308,8 +318,10 @@ int quic_init(struct quic_ctx *ctx, const uint8_t *data, size_t siz)
 	{
 		ctx->pnum |= ((data[ctx->pnumoff+i] ^ (mask[i+1])) << (8*(ctx->pnumlen-1-i)));
 	}
+#ifdef QUICDEBUG
 	printf("Length: %llu\n", (unsigned long long)ctx->len);
 	printf("Packet number: %llu (len %d)\n", (unsigned long long)ctx->pnum, (int)ctx->pnumlen);
+#endif
 	ctx->payoff = ctx->pnumoff + ctx->pnumlen;
 	if (siz < ctx->payoff + len - ctx->pnumlen)
 	{
@@ -326,20 +338,24 @@ int quic_init(struct quic_ctx *ctx, const uint8_t *data, size_t siz)
 	ctx->cur_iv[9] ^= (ctx->pnum>>16)&0xFF;
 	ctx->cur_iv[10] ^= (ctx->pnum>>8)&0xFF;
 	ctx->cur_iv[11] ^= (ctx->pnum>>0)&0xFF;
+#ifdef QUICDEBUG
 	printf("Full nonce:");
 	for (i = 0; i < 16; i++)
 	{
 		printf(" %.2x", ctx->cur_iv[i]);
 	}
 	printf("\n");
+#endif
 
 	hkdf_expand_label_precalc(key, 16, precalc_label_quic_key, sizeof(precalc_label_quic_key), client_initial_secret);
+#ifdef QUICDEBUG
 	printf("Key:");
 	for (i = 0; i < 16; i++)
 	{
 		printf(" %.2x", key[i]);
 	}
 	printf("\n");
+#endif
 	aes_key[0] =
 		(((uint32_t)key[0])<<24) |
 		(((uint32_t)key[1])<<16) |
@@ -540,5 +556,10 @@ int main(int argc, char **argv)
 		printf("Found SNI!\n");
 	}
 	//printf("Expected: 06 00 40 f1 01 00 00 ed 03 03 eb f8 fa 56 f1 29 ..\n");
+	for (i = 0; i < 100*1000; i++)
+	{
+		quic_init(&ctx, quic_data, sizeof(quic_data));
+		prepare_get(&ctx, new_first_nondecrypted_off);
+	}
 	return 0;
 }

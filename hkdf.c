@@ -3,9 +3,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "sha_hp.h"
 
 
 // Public domain code begins, https://github.com/983/SHA-256
+
+#if 0
 
 #define SHA256_HEX_SIZE (64 + 1)
 #define SHA256_BYTES_SIZE 32
@@ -225,10 +228,13 @@ void sha256_bytes(const void *src, size_t n_bytes, void *dst_bytes32){
     sha256_finalize_bytes(&sha, dst_bytes32);
 }
 
+#endif
+
 // Public domain code ends
 
 struct sha256_ctx {
-	struct sha256 meat;
+	//struct sha256 meat;
+	sha256_ctx meat;
 };
 
 void sha256_ctx_init(struct sha256_ctx *ctx)
@@ -238,12 +244,14 @@ void sha256_ctx_init(struct sha256_ctx *ctx)
 
 void sha256_feed(struct sha256_ctx *ctx, const void *data, size_t data_len)
 {
-	sha256_append(&ctx->meat, data, data_len);
+	//sha256_append(&ctx->meat, data, data_len);
+	sha256_update(&ctx->meat, data, data_len);
 }
 
 void sha256_get(struct sha256_ctx *ctx, uint8_t result[32])
 {
-	sha256_finalize_bytes(&ctx->meat, result);
+	//sha256_finalize_bytes(&ctx->meat, result);
+	sha256_final(&ctx->meat, result);
 }
 
 void hmac_hash(uint8_t finalresult[32],
