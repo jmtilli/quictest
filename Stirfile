@@ -5,16 +5,16 @@ $CC ?= "cc"
 $CFLAGS ?= ["-O4", "-march=skylake", "-msse", "-msse2", "-msse3", "-mssse3", "-msse4", "-msse4.1", "-msse4.2", "-mavx", "-mavx2"]
 $LDFLAGS ?= []
 
-$SOURCES = ["aes.c", "aestest.c", "hkdf.c", "hkdftest.c", "quictest.c", "sha_hp.c"]
+$SOURCES = ["aes.c", "aestest.c", "hkdf.c", "hkdftest.c", "quictest.c", "sha_hp.c", "aesni.c"]
 $OBJS = @sufsuball($SOURCES, ".c", ".o")
 $DEPS = @sufsuball($SOURCES, ".c", ".d")
 
 @phonyrule: 'all': 'aestest' 'hkdftest' 'quictest'
 
-'aestest': 'aestest.o' 'aes.o'
+'aestest': 'aestest.o' 'aes.o' 'aesni.o'
 @	["cc", @$CFLAGS, @$LDFLAGS, "-o", $@, @$^]
 
-'quictest': 'quictest.o' 'aes.o' 'hkdf.o' 'sha_hp.o'
+'quictest': 'quictest.o' 'aes.o' 'hkdf.o' 'sha_hp.o' 'aesni.o'
 @	["cc", @$CFLAGS, @$LDFLAGS, "-o", $@, @$^]
 
 'hkdftest': 'hkdftest.o' 'hkdf.o' 'sha_hp.o'
