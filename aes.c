@@ -3,6 +3,11 @@
 #include <stdio.h>
 #include <string.h>
 
+void aes_initer_init(struct aes_initer *in)
+{
+	in->ni = !!(aesni_has_ni());
+}
+
 /*
  * Galois field multiplication
  */
@@ -153,12 +158,12 @@ static inline void calc_rcons(struct rcons *rc)
 		rc->rcon[i] = ((uint32_t)rcs[i])<<24;
 	}
 }
-void calc_expanded_key(struct expanded_key *ex, const uint32_t key[4])
+void calc_expanded_key(struct aes_initer *in, struct expanded_key *ex, const uint32_t key[4])
 {
 	int i;
 	struct rcons rc;
-	ex->ni = 0;
-	if (aesni_has_ni())
+	ex->ni = in->ni;
+	if (ex->ni)
 	{
 		uint8_t key8[16] = {
 			key[0]>>24, key[0]>>16, key[0]>>8, key[0],
@@ -166,7 +171,6 @@ void calc_expanded_key(struct expanded_key *ex, const uint32_t key[4])
 			key[2]>>24, key[2]>>16, key[2]>>8, key[2],
 			key[3]>>24, key[3]>>16, key[3]>>8, key[3]
 		};
-		ex->ni = 1;
 		ex->u.niimpl = aesni_alloc_expanded_key();
 		aesni_128_keyexp(ex->u.niimpl, key8);
 		return;

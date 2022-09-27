@@ -3,6 +3,12 @@
 #include <stdint.h>
 #include "aes_aesni.h"
 
+struct aes_initer {
+	int ni;
+};
+
+void aes_initer_init(struct aes_initer *in);
+
 struct expanded_key {
 	union {
 		uint32_t W[44];
@@ -11,7 +17,7 @@ struct expanded_key {
 	int ni;
 };
 
-void calc_expanded_key(struct expanded_key *ex, const uint32_t key[4]);
+void calc_expanded_key(struct aes_initer *in, struct expanded_key *ex, const uint32_t key[4]);
 
 /*
  * State

@@ -13,6 +13,8 @@ int main(int argc, char **argv)
 	uint8_t expected[16] = {0x69, 0xc4, 0xe0, 0xd8, 0x6a, 0x7b, 0x04, 0x30, 0xd8, 0xcd, 0xb7, 0x80, 0x70, 0xb4, 0xc5, 0x5a};
 	struct expanded_key ex;
 	int i, j;
+	struct aes_initer in;
+	aes_initer_init(&in);
 	//key[0] = 0x2b7e1516U;
 	//key[1] = 0x28aed2a6U;
 	//key[2] = 0xabf71588U;
@@ -21,7 +23,7 @@ int main(int argc, char **argv)
 	key[1] = 0x04050607U;
 	key[2] = 0x08090a0bU;
 	key[3] = 0x0c0d0e0fU;
-	calc_expanded_key(&ex, key);
+	calc_expanded_key(&in, &ex, key);
 
 	aes128(&ex, data);
 	for (i = 0; i < 15; i++)
@@ -34,7 +36,7 @@ int main(int argc, char **argv)
 	key[1] = 0;
 	key[2] = 0;
 	key[3] = 0;
-	calc_expanded_key(&ex, key);
+	calc_expanded_key(&in, &ex, key);
 	for (i = 0; i < 44; i++)
 	{
 		printf("%.8x\n", ex.u.W[i]);
@@ -45,7 +47,7 @@ int main(int argc, char **argv)
 	key[1] = 0x04050607;
 	key[2] = 0x08090a0b;
 	key[3] = 0x0c0d0e0f;
-	calc_expanded_key(&ex, key);
+	calc_expanded_key(&in, &ex, key);
 	for (i = 0; i < 44; i++)
 	{
 		printf("%.8x\n", ex.u.W[i]);
@@ -70,7 +72,7 @@ int main(int argc, char **argv)
 	// 538KPPS (4.6 Gbps)
 	for (j = 0; j < 1000*1000; j++)
 	{
-		calc_expanded_key(&ex, key);
+		calc_expanded_key(&in, &ex, key);
 		for (i = 0; i < 67; i++)
 		{
 			aes128(&ex, data);

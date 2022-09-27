@@ -95,7 +95,7 @@ int prepare_get(struct quic_ctx *ctx, uint16_t new_first_nondecrypted_off)
 	return 0;
 }
 
-int quic_init(struct quic_ctx *ctx, const uint8_t *data, size_t siz)
+int quic_init(struct aes_initer *in, struct quic_ctx *ctx, const uint8_t *data, size_t siz)
 {
 	uint8_t hp[16];
 	uint8_t key[16];
@@ -201,7 +201,7 @@ int quic_init(struct quic_ctx *ctx, const uint8_t *data, size_t siz)
 		(((uint32_t)hp[13])<<16) |
 		(((uint32_t)hp[14])<<8) |
 		((uint32_t)hp[15]);
-	calc_expanded_key(&ctx->aes_exp, aes_key);
+	calc_expanded_key(in, &ctx->aes_exp, aes_key);
 
 	ctx->srccidoff = ctx->dstcidoff + ctx->dstcidlen+1;
 	ctx->srccidlen = (uint8_t)data[ctx->dstcidoff + ctx->dstcidlen];
@@ -376,7 +376,7 @@ int quic_init(struct quic_ctx *ctx, const uint8_t *data, size_t siz)
 		(((uint32_t)key[13])<<16) |
 		(((uint32_t)key[14])<<8) |
 		((uint32_t)key[15]);
-	calc_expanded_key(&ctx->aes_exp, aes_key);
+	calc_expanded_key(in, &ctx->aes_exp, aes_key);
 
 	// packet number length: 0 = 1 byte, 1 = 2 bytes, 2 = 3 bytes, 3 = 4 bytes
 	// this is encrypted
@@ -533,7 +533,9 @@ int main(int argc, char **argv)
 	int i;
 	int cnt = 0;
 	int new_first_nondecrypted_off;
-	printf("%d\n", quic_init(&ctx, quic_data, sizeof(quic_data)));
+	struct aes_initer in;
+	aes_initer_init(&in);
+	printf("%d\n", quic_init(&in, &ctx, quic_data, sizeof(quic_data)));
 	printf("sz %zu\n", sizeof(quic_data));
 	printf("Payoff %d\n", (int)ctx.payoff);
 	printf("ctx.len %d\n", (int)ctx.len);
@@ -556,9 +558,11 @@ int main(int argc, char **argv)
 		printf("Found SNI!\n");
 	}
 	//printf("Expected: 06 00 40 f1 01 00 00 ed 03 03 eb f8 fa 56 f1 29 ..\n");
-	for (i = 0; i < 100*1000; i++)
+
+	//5.676 s per 1M packets
+	for (i = 0; i < 1000*1000; i++)
 	{
-		quic_init(&ctx, quic_data, sizeof(quic_data));
+		quic_init(&in, &ctx, quic_data, sizeof(quic_data));
 		prepare_get(&ctx, new_first_nondecrypted_off);
 	}
 	return 0;
