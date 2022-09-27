@@ -157,22 +157,36 @@ void calc_expanded_key(struct expanded_key *ex, const uint32_t key[4])
 {
 	int i;
 	struct rcons rc;
+	ex->ni = 0;
+	if (aesni_has_ni())
+	{
+		uint8_t key8[16] = {
+			key[0]>>24, key[0]>>16, key[0]>>8, key[0],
+			key[1]>>24, key[1]>>16, key[1]>>8, key[1],
+			key[2]>>24, key[2]>>16, key[2]>>8, key[2],
+			key[3]>>24, key[3]>>16, key[3]>>8, key[3]
+		};
+		ex->ni = 1;
+		ex->u.niimpl = aesni_alloc_expanded_key();
+		aesni_128_keyexp(ex->u.niimpl, key8);
+		return;
+	}
 	calc_rcons(&rc);
 	for (i = 0; i < 4; i++)
 	{
-		ex->W[i] = key[i];
+		ex->u.W[i] = key[i];
 	}
 	for (i = 4; i < 44; i++)
 	{
 		if ((i%4) == 0)
 		{
-			ex->W[i] = sub_word(rot_word(ex->W[i-1])) ^ rc.rcon[i/4];
+			ex->u.W[i] = sub_word(rot_word(ex->u.W[i-1])) ^ rc.rcon[i/4];
 		}
 		else
 		{
-			ex->W[i] = ex->W[i-1];
+			ex->u.W[i] = ex->u.W[i-1];
 		}
-		ex->W[i] ^= ex->W[i-4];
+		ex->u.W[i] ^= ex->u.W[i-4];
 	}
 }
 
@@ -195,9 +209,9 @@ static inline void add_round_key(struct aes_state *s, const struct expanded_key 
 	for (i = 0; i < 16; i++)
 	{
 #ifdef AESDEBUG
-		printf(" %.2x", (e->W[4*round+(i/4)] >> (24-8*(i%4)))&0xFF);
+		printf(" %.2x", (e->u.W[4*round+(i/4)] >> (24-8*(i%4)))&0xFF);
 #endif
-		s->state[i] ^= (e->W[4*round+(i/4)] >> (24-8*(i%4)))&0xFF;
+		s->state[i] ^= (e->u.W[4*round+(i/4)] >> (24-8*(i%4)))&0xFF;
 		//s->state[i] ^= (e->W[4*round+(i/4)] >> (8*(i%4)));
 	}
 #ifdef AESDEBUG
@@ -276,6 +290,11 @@ void aes128(const struct expanded_key *e, uint8_t data[16])
 #ifdef AESDEBUG
 	int i;
 #endif
+	if (e->ni)
+	{
+		aesni_128_encrypt(e->u.niimpl, data);
+		return;
+	}
 	memcpy(s.state, data, 16);
 #ifdef AESDEBUG
 	for (i = 0; i < 16; i++)

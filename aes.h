@@ -1,9 +1,14 @@
 #ifndef _AES_H_
 #define _AES_H_
 #include <stdint.h>
+#include "aes_aesni.h"
 
-struct expanded_key{
-	uint32_t W[44];
+struct expanded_key {
+	union {
+		uint32_t W[44];
+		struct aesni_expanded_key *niimpl;
+	} u;
+	int ni;
 };
 
 void calc_expanded_key(struct expanded_key *ex, const uint32_t key[4]);
