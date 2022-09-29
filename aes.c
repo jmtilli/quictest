@@ -272,7 +272,32 @@ static inline void sub_bytes(struct aes_state *s)
 
 static inline void shift_rows(struct aes_state *s)
 {
-	struct aes_state s2;
+	//struct aes_state s2;
+	uint8_t tmp;
+
+	// 0, 4, 8, 12 stays the same
+
+	tmp = s->state[1];
+	s->state[1] = s->state[5];
+	s->state[5] = s->state[9];
+	s->state[9] = s->state[13];
+	s->state[13] = tmp;
+
+	tmp = s->state[2];
+	s->state[2] = s->state[10];
+	s->state[10] = s->state[2];
+
+	tmp = s->state[3];
+	s->state[3] = s->state[15];
+	s->state[15] = s->state[11];
+	s->state[11] = s->state[7];
+	s->state[7] = tmp;
+
+	tmp = s->state[6];
+	s->state[6] = s->state[14];
+	s->state[14] = tmp;
+
+	/*
 	s2.state[0] = s->state[0];
 	s2.state[1] = s->state[5];
 	s2.state[2] = s->state[10];
@@ -290,6 +315,7 @@ static inline void shift_rows(struct aes_state *s)
 	s2.state[14] = s->state[6];
 	s2.state[15] = s->state[11];
 	*s = s2;
+	*/
 }
 
 void mix_columns(struct aes_state *s)
