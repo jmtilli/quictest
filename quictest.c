@@ -107,6 +107,7 @@ int quic_init(struct aes_initer *in, struct quic_ctx *ctx, const uint8_t *data, 
 	uint64_t tokenlen;
 	uint64_t len;
 	uint16_t lenoff;
+	struct hkdf_ctx hkdf;
 	int i;
 
 	if (siz > sizeof(ctx->quic_data))
@@ -151,7 +152,11 @@ int quic_init(struct aes_initer *in, struct quic_ctx *ctx, const uint8_t *data, 
 	}
 	printf("\n");
 #endif
-	hkdf_expand_label_precalc(hp, 16, precalc_label_quic_hp, sizeof(precalc_label_quic_hp), client_initial_secret);
+
+	hkdf_precalc(&hkdf, client_initial_secret);
+
+	//hkdf_expand_label_precalc(hp, 16, precalc_label_quic_hp, sizeof(precalc_label_quic_hp), client_initial_secret);
+	hkdf_expand_label_precalc2(&hkdf, hp, 16, precalc_label_quic_hp, sizeof(precalc_label_quic_hp));
 #ifdef QUICDEBUG
 	printf("HP key:");
 	for (i = 0; i < 16; i++)
@@ -160,7 +165,8 @@ int quic_init(struct aes_initer *in, struct quic_ctx *ctx, const uint8_t *data, 
 	}
 	printf("\n");
 #endif
-	hkdf_expand_label_precalc(ctx->cur_iv, 12, precalc_label_quic_iv, sizeof(precalc_label_quic_iv), client_initial_secret);
+	//hkdf_expand_label_precalc(ctx->cur_iv, 12, precalc_label_quic_iv, sizeof(precalc_label_quic_iv), client_initial_secret);
+	hkdf_expand_label_precalc2(&hkdf, ctx->cur_iv, 12, precalc_label_quic_iv, sizeof(precalc_label_quic_iv));
 #ifdef QUICDEBUG
 	printf("IV:");
 	for (i = 0; i < 12; i++)
@@ -347,7 +353,8 @@ int quic_init(struct aes_initer *in, struct quic_ctx *ctx, const uint8_t *data, 
 	printf("\n");
 #endif
 
-	hkdf_expand_label_precalc(key, 16, precalc_label_quic_key, sizeof(precalc_label_quic_key), client_initial_secret);
+	//hkdf_expand_label_precalc(key, 16, precalc_label_quic_key, sizeof(precalc_label_quic_key), client_initial_secret);
+	hkdf_expand_label_precalc2(&hkdf, key, 16, precalc_label_quic_key, sizeof(precalc_label_quic_key));
 #ifdef QUICDEBUG
 	printf("Key:");
 	for (i = 0; i < 16; i++)
