@@ -929,12 +929,23 @@ int main(int argc, char **argv)
 	}
 	//printf("Expected: 06 00 40 f1 01 00 00 ed 03 03 eb f8 fa 56 f1 29 ..\n");
 
-	// 5.2 s per 1M packets (SHA256 high performance)
-	// 5.5 s per 1M packets (SHA256 public domain)
+	// 5.2 s per 1M packets (SHA256 high performance), prepare_get
+	// 5.5 s per 1M packets (SHA256 public domain), prepare_get
+	// 5.0 s per 1M packets (SHA256 public domain), quic_tls_sni_detect
+	//
+	// Initial packet: at least 1200 bytes, this is UDP payload
+	// 1200+8+20+14 = 1242 bytes, 9936 bits, 1.99 Gbps
+	// Ethernet preamble: 7 bytes
+	// Ethernet frame start delimiter: 1 bytes
+	// Ethernet frame check sequence: 4 bytes
+	// Ethernet interpacket gap: 12 bytes
+	// So with these:
+	// 7+1+14+20+8+1200+4+12 = 1266 bytes, 10128 bits, 2.03 Gbps
 	for (i = 0; i < 1000*1000; i++)
 	{
 		quic_init(&in, &ctx, quic_data, sizeof(quic_data));
-		prepare_get(&ctx, new_first_nondecrypted_off);
+		quic_tls_sni_detect(&ctx, &hname, &hlen);
+		//prepare_get(&ctx, new_first_nondecrypted_off);
 	}
 	return 0;
 }
