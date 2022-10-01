@@ -898,6 +898,18 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
  *
  * Frames always fit within a single QUIC packet and cannot span multiple
  * packets.
+ *
+ * Senders MUST NOT coalesce QUIC packets with different connection IDs into a
+ * single UDP datagram. Receivers SHOULD ignore any subsequent packets with a
+ * different Destination Connection ID than the first packet in the datagram.
+ *
+ * Datagrams that contain an Initial packet (Client Initial, Server Initial,
+ * and some Client Completion) contain at least 1200 octets of UDP payload.
+ * This protects against amplification attacks and verifies that the network
+ * path meets the requirements for the minimum QUIC IP packet size; see Section
+ * 14 of [QUIC-TRANSPORT]. This is accomplished by either adding PADDING frames
+ * within the Initial packet, coalescing other packets with the Initial packet,
+ * or leaving unused payload in the UDP packet after the Initial packet.
  */
 
 int main(int argc, char **argv)
