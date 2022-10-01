@@ -547,6 +547,11 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 	const uint8_t *data = (const uint8_t*)&ctx->quic_data;
 	uint32_t off = ctx->payoff; // uint32_t for safety against overflows
 	uint64_t offset_in_packet;
+	// Outside CRYPTO frame, there's another length field. If
+	// length_in_packet is 512 bytes, and varints are 4 bytes, there's
+	// 516 bytes of encrypted data + 16 bytes of AEAD data so
+	// 532 bytes total. Outside that, if packet number is 1 byte, it
+	// means outside CRYPTO frame length would be 533 bytes.
 	uint64_t length_in_packet; // FIXME check length_in_packet
 	// length_in_packet is N bytes smaller than encrypted data (w/o AEAD)
 	// where N = length(frame_type) + length(offset) + length(length)
