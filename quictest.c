@@ -542,14 +542,19 @@ const uint8_t quic_data[] = {
 };
 */
 
-// FIXME abort() safety
 int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 {
 	const uint8_t *data = (const uint8_t*)&ctx->quic_data;
 	uint32_t off = ctx->payoff; // uint32_t for safety against overflows
 	uint64_t offset_in_packet;
 	uint64_t length_in_packet; // FIXME check length_in_packet
+	// length_in_packet is N bytes smaller than encrypted data (w/o AEAD)
+	// where N = length(frame_type) + length(offset) + length(length)
+	// - but we should allow length_in_packet smaller than that, not larger
 	uint32_t tlslen; // FIXME check tlslen
+	// tlslen is length of data after type(1 byte) + len(3 bytes), or
+	// 4 bytes smaller than length_in_packet
+	// - but we should allow tlslen smaller than that, not larger
 	uint8_t session_id_length;
 	uint16_t cipher_suites_length;
 	uint8_t compression_methods_length;
