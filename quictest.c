@@ -95,13 +95,13 @@ int prepare_get(struct quic_ctx *ctx, uint16_t new_first_nondecrypted_off)
 	return 0;
 }
 
-static inline void prepare_get_fast(struct quic_ctx *ctx, uint16_t new_first_nondecrypted_off)
+static inline int prepare_get_fast(struct quic_ctx *ctx, uint16_t new_first_nondecrypted_off)
 {
 	if (ctx->first_nondecrypted_off >= new_first_nondecrypted_off)
 	{
-		return;
+		return 0;
 	}
-	prepare_get(ctx, new_first_nondecrypted_off);
+	return prepare_get(ctx, new_first_nondecrypted_off);
 }
 
 int quic_init(struct aes_initer *in, struct quic_ctx *ctx, const uint8_t *data, size_t siz)
@@ -542,6 +542,267 @@ const uint8_t quic_data[] = {
 };
 */
 
+// FIXME abort() safety
+int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
+{
+	const uint8_t *data = (const uint8_t*)&ctx->quic_data;
+	uint32_t off = ctx->payoff; // uint32_t for safety against overflows
+	uint64_t offset_in_packet;
+	uint64_t length_in_packet;
+	uint32_t tlslen;
+	uint8_t session_id_length;
+	uint16_t cipher_suites_length;
+	uint8_t compression_methods_length;
+	uint16_t extensions_length;
+	uint32_t ext_start_off; // uint32_t for safety against overflows
+
+	if (prepare_get_fast(ctx, off+1))
+	{
+		printf("ENODATA 1\n");
+		return -ENODATA;
+	}
+	if (data[off] != 0x06)
+	{
+		return -ENOMSG;
+	}
+	off += 1;
+
+	if (prepare_get_fast(ctx, off+1))
+	{
+		printf("ENODATA 2\n");
+		return -ENODATA;
+	}
+
+	switch (data[off]>>6)
+	{
+		case 0:
+			offset_in_packet = data[off]&0x3f;
+			off += 1;
+			break;
+		case 1:
+			if (prepare_get_fast(ctx, off+2))
+			{
+				printf("ENODATA 3\n");
+				return -ENODATA;
+			}
+			offset_in_packet =
+				(((uint64_t)data[off]&0x3f) << 8) |
+				 ((uint64_t)data[off+1]);
+			off += 2;
+			break;
+		case 2:
+			if (prepare_get_fast(ctx, off+4))
+			{
+				printf("ENODATA 4\n");
+				return -ENODATA;
+			}
+			offset_in_packet =
+				(((uint64_t)data[off]&0x3f) << 24) |
+				 (((uint64_t)data[off+1]) << 16) |
+				 (((uint64_t)data[off+2]) << 8) |
+				 ((uint64_t)data[off+3]);
+			off += 4;
+			break;
+		case 3:
+			if (prepare_get_fast(ctx, off+8))
+			{
+				printf("ENODATA 5\n");
+				return -ENODATA;
+			}
+			offset_in_packet =
+				(((uint64_t)data[off]&0x3f) << 56) |
+				 (((uint64_t)data[off+1]) << 48) |
+				 (((uint64_t)data[off+2]) << 40) |
+				 (((uint64_t)data[off+3]) << 32) |
+				 (((uint64_t)data[off+1]) << 24) |
+				 (((uint64_t)data[off+2]) << 16) |
+				 (((uint64_t)data[off+3]) << 8) |
+				 ((uint64_t)data[off+1]);
+			off += 8;
+			break;
+	}
+
+	if (prepare_get_fast(ctx, off+1))
+	{
+		printf("ENODATA 6\n");
+		return -ENODATA;
+	}
+
+	switch (data[off]>>6)
+	{
+		case 0:
+			length_in_packet = data[off]&0x3f;
+			off += 1;
+			break;
+		case 1:
+			if (prepare_get_fast(ctx, off+2))
+			{
+				printf("ENODATA 7\n");
+				return -ENODATA;
+			}
+			length_in_packet =
+				(((uint64_t)data[off]&0x3f) << 8) |
+				 ((uint64_t)data[off+1]);
+			off += 2;
+			break;
+		case 2:
+			if (prepare_get_fast(ctx, off+4))
+			{
+				printf("ENODATA 8\n");
+				return -ENODATA;
+			}
+			length_in_packet =
+				(((uint64_t)data[off]&0x3f) << 24) |
+				 (((uint64_t)data[off+1]) << 16) |
+				 (((uint64_t)data[off+2]) << 8) |
+				 ((uint64_t)data[off+3]);
+			off += 4;
+			break;
+		case 3:
+			if (prepare_get_fast(ctx, off+8))
+			{
+				printf("ENODATA 9\n");
+				return -ENODATA;
+			}
+			length_in_packet =
+				(((uint64_t)data[off]&0x3f) << 56) |
+				 (((uint64_t)data[off+1]) << 48) |
+				 (((uint64_t)data[off+2]) << 40) |
+				 (((uint64_t)data[off+3]) << 32) |
+				 (((uint64_t)data[off+1]) << 24) |
+				 (((uint64_t)data[off+2]) << 16) |
+				 (((uint64_t)data[off+3]) << 8) |
+				 ((uint64_t)data[off+1]);
+			off += 8;
+			break;
+	}
+	// 1 byte client hello (0x1)
+	// 3 bytes len
+	// 2 bytes version
+	// 32 bytes random
+	// 1 bytes session ID length
+	if (prepare_get_fast(ctx, off+39))
+	{
+		printf("ENODATA 10\n");
+		return -ENODATA;
+	}
+	if (data[off] != 0x1)
+	{
+		return -ENOMSG;
+	}
+	off++;
+	tlslen =
+		(((uint32_t)data[off])<<16) |
+		(((uint32_t)data[off+1])<<8) |
+		data[off+2];
+	off += 3;
+	if (data[off] != 0x03 || data[off+1] != 0x03) // FIXME version
+	{
+		return -ENOMSG;
+	}
+	off += 2;
+	off += 32; // skip random
+	session_id_length = data[off];
+	off += 1;
+	if (prepare_get_fast(ctx, off+session_id_length+2))
+	{
+		printf("ENODATA 11\n");
+		return -ENODATA;
+	}
+	off += session_id_length;
+	cipher_suites_length = (((uint16_t)data[off])<<8) | data[off+1];
+	off += 2;
+	if (prepare_get_fast(ctx, off+cipher_suites_length+1))
+	{
+		printf("ENODATA 12\n");
+		return -ENODATA;
+	}
+	off += cipher_suites_length;
+	compression_methods_length = data[off];
+	off += 1;
+	if (prepare_get_fast(ctx, off+compression_methods_length+2))
+	{
+		printf("ENODATA 13\n");
+		return -ENODATA;
+	}
+	off += compression_methods_length;
+	extensions_length = (((uint16_t)data[off])<<8) | data[off+1];
+	off += 2;
+	ext_start_off = off;
+	// FIXME check continuously that we don't get past extensions_length
+	while (off < ext_start_off + extensions_length)
+	{
+		uint16_t ext_type, ext_len;
+		uint32_t ext_data_start_off;
+		uint16_t sname_list_len;
+		if (prepare_get_fast(ctx, off+4))
+		{
+			printf("ENODATA 14\n");
+			return -ENODATA;
+		}
+		ext_type = (((uint16_t)data[off])<<8) | data[off+1];
+		off += 2;
+		ext_len = (((uint16_t)data[off])<<8) | data[off+1];
+		off += 2;
+		if (prepare_get_fast(ctx, off+ext_len))
+		{
+			printf("ENODATA 15\n");
+			return -ENODATA;
+		}
+		if (ext_type != 0)
+		{
+			off += ext_len;
+			continue;
+		}
+		ext_data_start_off = off;
+		sname_list_len = (((uint16_t)data[off])<<8) | data[off+1];
+		if (ext_len < sname_list_len + 2)
+		{
+			printf("ENODATA 16\n");
+			return -ENODATA;
+		}
+		off += 2;
+		while (off < ext_data_start_off + 2 + sname_list_len)
+		{
+			uint8_t sname_type;
+			uint16_t sname_len;
+			sname_type = data[off];
+			off++;
+			if (off + 2 > ext_data_start_off + 2 + sname_list_len)
+			{
+				printf("ENODATA 17\n");
+				return -ENODATA;
+			}
+			sname_len = (((uint16_t)data[off])<<8) | data[off+1];
+			off += 2;
+			if (off + sname_len > ext_data_start_off + 2 + sname_list_len)
+			{
+				printf("ENODATA 18\n");
+				return -ENODATA;
+			}
+			if (sname_type == 0)
+			{
+				*hname = (const char*)&data[off];
+				*hlen = sname_len;
+				/*
+				int i;
+				printf("Found SNI: ");
+				for (i = 0; i < sname_len; i++)
+				{
+					printf("%c", data[off+i]);
+				}
+				printf("\n");
+				*/
+				return 0;
+			}
+			off += sname_len;
+		}
+		off = ext_data_start_off + ext_len;
+	}
+
+	// FIXME check tlslen
+	return -EHOSTUNREACH;
+}
 
 int main(int argc, char **argv)
 {
@@ -550,6 +811,8 @@ int main(int argc, char **argv)
 	int cnt = 0;
 	int new_first_nondecrypted_off;
 	struct aes_initer in;
+	const char *hname;
+	size_t hlen;
 	aes_initer_init(&in);
 	printf("%d\n", quic_init(&in, &ctx, quic_data, sizeof(quic_data)));
 	printf("sz %zu\n", sizeof(quic_data));
@@ -557,7 +820,17 @@ int main(int argc, char **argv)
 	printf("ctx.len %d\n", (int)ctx.len);
 	printf("ctx.pnumlen %d\n", (int)ctx.pnumlen);
 	new_first_nondecrypted_off = ((int)ctx.payoff) + ((int)ctx.len) - ((int)ctx.pnumlen);
-	printf("%d\n", prepare_get(&ctx, new_first_nondecrypted_off));
+	//printf("%d\n", prepare_get(&ctx, new_first_nondecrypted_off));
+	if (quic_tls_sni_detect(&ctx, &hname, &hlen) == 0)
+	{
+		size_t j;
+		printf("Found SNI: ");
+		for (j = 0; j < hlen; j++)
+		{
+			printf("%c", hname[j]);
+		}
+		printf("\n");
+	}
 	//for (i = ctx.payoff; i < new_first_nondecrypted_off; i++)
 	for (i = ctx.payoff; i < ctx.payoff+16; i++)
 	{
