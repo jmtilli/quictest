@@ -916,6 +916,13 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
  * 14 of [QUIC-TRANSPORT]. This is accomplished by either adding PADDING frames
  * within the Initial packet, coalescing other packets with the Initial packet,
  * or leaving unused payload in the UDP packet after the Initial packet.
+ *
+ * Implementations MUST support buffering at least 4096 bytes of data
+ * received in out-of-order CRYPTO frames. Endpoints MAY choose to
+ * allow more data to be buffered during the handshake. A larger limit
+ * during the handshake could allow for larger keys or credentials to be
+ * exchanged. And endpoint's buffer size does not need to remain
+ * constant during the life of the connection.
  */
 
 int main(int argc, char **argv)
