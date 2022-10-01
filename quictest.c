@@ -939,6 +939,8 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
  * permitted.  An endpoint that receives an Initial packet containing
  * other frames can either discard the packet as spurious or treat it as
  * a connection error.
+ *
+ * TODO / FIXME: PING, CONNECTION_CLOSE(0x1c), ACK
  */
 
 int main(int argc, char **argv)
