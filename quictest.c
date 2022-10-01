@@ -95,6 +95,15 @@ int prepare_get(struct quic_ctx *ctx, uint16_t new_first_nondecrypted_off)
 	return 0;
 }
 
+static inline void prepare_get_fast(struct quic_ctx *ctx, uint16_t new_first_nondecrypted_off)
+{
+	if (ctx->first_nondecrypted_off >= new_first_nondecrypted_off)
+	{
+		return;
+	}
+	prepare_get(ctx, new_first_nondecrypted_off);
+}
+
 int quic_init(struct aes_initer *in, struct quic_ctx *ctx, const uint8_t *data, size_t siz)
 {
 	uint8_t hp[16];
