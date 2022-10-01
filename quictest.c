@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include <string.h>
+#include <limits.h>
 #include <stdio.h>
 #include <errno.h>
 #include <stdint.h>
@@ -397,6 +398,10 @@ int quic_init(struct aes_initer *in, struct quic_ctx *ctx, const uint8_t *data, 
 	// packet number length: 0 = 1 byte, 1 = 2 bytes, 2 = 3 bytes, 3 = 4 bytes
 	// this is encrypted
 
+	if (siz > (size_t)UINT16_MAX || (size_t)len > (size_t)UINT16_MAX)
+	{
+		return -ENODATA;
+	}
 	ctx->siz = (uint16_t)siz;
 	memcpy(ctx->quic_data, data, ctx->siz);
 	return 0;
@@ -547,16 +552,19 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 	const uint8_t *data = (const uint8_t*)&ctx->quic_data;
 	uint32_t off = ctx->payoff; // uint32_t for safety against overflows
 	uint64_t offset_in_packet;
-	// Outside CRYPTO frame, there's another length field. If
+	// Outside CRYPTO frame, there's another length field (ctx->len). If
 	// length_in_packet is 512 bytes, and varints are 4 bytes, there's
 	// 516 bytes of encrypted data + 16 bytes of AEAD data so
 	// 532 bytes total. Outside that, if packet number is 1 byte, it
 	// means outside CRYPTO frame length would be 533 bytes.
-	uint64_t length_in_packet; // FIXME check length_in_packet
+	// However, it has been checked that there's enough data in packet
+	// and prepare_get_fast() tells if we go past this lemgth field
+	// outside CRYPTO frame.
+	uint64_t length_in_packet;
 	// length_in_packet is N bytes smaller than encrypted data (w/o AEAD)
 	// where N = length(frame_type) + length(offset) + length(length)
 	// - but we should allow length_in_packet smaller than that, not larger
-	uint32_t tlslen; // FIXME check tlslen
+	uint32_t tlslen;
 	// tlslen is length of data after type(1 byte) + len(3 bytes), or
 	// 4 bytes smaller than length_in_packet
 	// - but we should allow tlslen smaller than that, not larger
@@ -565,6 +573,7 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 	uint8_t compression_methods_length;
 	uint16_t extensions_length;
 	uint32_t ext_start_off; // uint32_t for safety against overflows
+	uint32_t tls_start_off; // uint32_t for safety against overflows
 
 	if (prepare_get_fast(ctx, off+1))
 	{
@@ -686,6 +695,19 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 			off += 8;
 			break;
 	}
+	if (length_in_packet > (uint64_t)UINT16_MAX ||
+	    length_in_packet > (uint64_t)INT_MAX)
+	{
+		printf("ENODATA 9.25\n");
+		return -ENODATA;
+	}
+	if (((int)off) + ((int)length_in_packet) + 16 > ((int)ctx->payoff) + ((int)ctx->len) - ((int)ctx->pnumlen))
+	{
+		printf("Left side: %d\n", (int)(off + length_in_packet + 16));
+		printf("Right side: %d\n", (int)(ctx->payoff + ctx->len - ctx->pnumlen));
+		printf("ENODATA 9.5\n");
+		return -ENODATA;
+	}
 	// 1 byte client hello (0x1)
 	// 3 bytes len
 	// 2 bytes version
@@ -705,7 +727,18 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 		(((uint32_t)data[off])<<16) |
 		(((uint32_t)data[off+1])<<8) |
 		data[off+2];
+	if (tlslen + 4 > length_in_packet)
+	{
+		printf("ENODATA 10.5\n");
+		return -ENODATA;
+	}
 	off += 3;
+	tls_start_off = off;
+	if (off + 2 + 32 + 1 > tls_start_off + tlslen)
+	{
+		printf("ENODATA 10.6\n");
+		return -ENODATA;
+	}
 	if (data[off] != 0x03 || data[off+1] != 0x03) // FIXME version
 	{
 		return -ENOMSG;
@@ -714,6 +747,11 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 	off += 32; // skip random
 	session_id_length = data[off];
 	off += 1;
+	if (off + session_id_length + 2 > tls_start_off + tlslen)
+	{
+		printf("ENODATA 10.7\n");
+		return -ENODATA;
+	}
 	if (prepare_get_fast(ctx, off+session_id_length+2))
 	{
 		printf("ENODATA 11\n");
@@ -722,6 +760,11 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 	off += session_id_length;
 	cipher_suites_length = (((uint16_t)data[off])<<8) | data[off+1];
 	off += 2;
+	if (off + cipher_suites_length + 1 > tls_start_off + tlslen)
+	{
+		printf("ENODATA 11.5\n");
+		return -ENODATA;
+	}
 	if (prepare_get_fast(ctx, off+cipher_suites_length+1))
 	{
 		printf("ENODATA 12\n");
@@ -730,6 +773,11 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 	off += cipher_suites_length;
 	compression_methods_length = data[off];
 	off += 1;
+	if (off + compression_methods_length + 2 > tls_start_off + tlslen)
+	{
+		printf("ENODATA 12.5\n");
+		return -ENODATA;
+	}
 	if (prepare_get_fast(ctx, off+compression_methods_length+2))
 	{
 		printf("ENODATA 13\n");
@@ -738,6 +786,13 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 	off += compression_methods_length;
 	extensions_length = (((uint16_t)data[off])<<8) | data[off+1];
 	off += 2;
+	if (off + extensions_length > tls_start_off + tlslen)
+	{
+		printf("Left side: %d\n", (int)(off + extensions_length));
+		printf("Right side: %d\n", (int)(tls_start_off + tlslen));
+		printf("ENODATA 13.5\n");
+		return -ENODATA;
+	}
 	ext_start_off = off;
 	// FIXME check continuously that we don't get past extensions_length
 	while (off < ext_start_off + extensions_length)
