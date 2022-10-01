@@ -295,6 +295,152 @@ int may_pull(struct ctx *c, uint8_t cnt)
 	return retval;
 }
 
+void get_varint_slowpath(struct ctx *c, uint64_t *intout)
+{
+	if (!intout)
+	{
+		return;
+	}
+	if (c->past_data_len == 0 || c->past_data_len < (1<<(c->past_data[0]>>6)))
+	{
+		abort();
+	}
+	switch (c->past_data[0]>>6)
+	{
+		case 0:
+			*intout = c->past_data[0]&0x3f;
+			break;
+		case 1:
+			*intout =
+				(((uint64_t)c->past_data[0]&0x3f) << 8) |
+				 ((uint64_t)c->past_data[1]);
+			break;
+		case 2:
+			*intout =
+				(((uint64_t)c->past_data[0]&0x3f) << 24) |
+				 (((uint64_t)c->past_data[1]) << 16) |
+				 (((uint64_t)c->past_data[2]) << 8) |
+				 ((uint64_t)c->past_data[3]);
+			break;
+		case 3:
+			*intout =
+				(((uint64_t)c->past_data[0]&0x3f) << 56) |
+				 (((uint64_t)c->past_data[1]) << 48) |
+				 (((uint64_t)c->past_data[2]) << 40) |
+				 (((uint64_t)c->past_data[3]) << 32) |
+				 (((uint64_t)c->past_data[4]) << 24) |
+				 (((uint64_t)c->past_data[5]) << 16) |
+				 (((uint64_t)c->past_data[6]) << 8) |
+				 ((uint64_t)c->past_data[7]);
+			break;
+	}
+}
+static inline void get_varint(struct ctx *c, uint64_t *intout)
+{
+	if (!intout)
+	{
+		return;
+	}
+	get_varint_slowpath(c, intout);
+}
+
+int may_pull_varint(struct ctx *c, uint64_t *intout)
+{
+	uint8_t consumed_cryptostream = c->off - (c->off/16)*16;
+	uint8_t change;
+	uint8_t cnt;
+	uint8_t cntthis;
+	uint8_t i;
+	int retval = 0;
+	if (c->past_data_len >= 8)
+	{
+		abort();
+	}
+	if (c->payload_len == c->off)
+	{
+		return -EAGAIN;
+	}
+	if (c->past_data_len == 0)
+	{
+		c->past_data[c->past_data_len++] = 
+				c->payload[c->off++] ^
+				c->cur_cryptostream[consumed_cryptostream + 0];
+		if (consumed_cryptostream == 15) // after the last line, it's actually 16
+		{
+			next_iv_and_stream(c);
+		}
+		consumed_cryptostream = c->off - (c->off/16)*16;
+	}
+	cnt = 1<<(c->past_data[0]>>6);
+	cnt -= c->past_data_len;
+	cntthis = cnt;
+	if (cntthis > c->payload_len - c->off)
+	{
+		cntthis = c->payload_len - c->off;
+		retval = -EAGAIN;
+	}
+	if (cntthis + consumed_cryptostream < 16)
+	{
+		for (i = 0; i < cntthis; i++)
+		{
+			c->past_data[c->past_data_len++] =
+				c->payload[c->off++] ^
+				c->cur_cryptostream[consumed_cryptostream + i];
+		}
+		cnt -= cntthis;
+		if (retval == 0)
+		{
+			get_varint(c, intout);
+			c->past_data_len = 0;
+		}
+		return retval;
+	}
+	change = 16 - consumed_cryptostream; // consume this
+	for (i = 0; i < change; i++)
+	{
+		c->past_data[c->past_data_len++] =
+			c->payload[c->off++] ^
+			c->cur_cryptostream[consumed_cryptostream + i];
+	}
+	cntthis -= change;
+	cnt -= change;
+	next_iv_and_stream(c);
+#if 0
+	while (cntthis >= 16)
+	{
+		for (i = 0; i < cntthis; i++)
+		{
+			c->past_data[c->past_data_len++] =
+				c->payload[c->off++] ^
+				c->cur_cryptostream[i];
+		}
+		cntthis -= 16;
+		cnt -= 16;
+		next_iv_and_stream(c);
+	}
+#endif
+	if (cntthis > 0)
+	{
+		if (cntthis >= 16)
+		{
+			abort();
+		}
+		for (i = 0; i < cntthis; i++)
+		{
+			c->past_data[c->past_data_len++] =
+				c->payload[c->off++] ^
+				c->cur_cryptostream[i];
+		}
+		cnt -= cntthis;
+	}
+	if (retval == 0)
+	{
+		get_varint(c, intout);
+		c->past_data_len = 0;
+	}
+	return retval;
+}
+
 int main(int argc, char **argv)
 {
 }
