@@ -890,6 +890,10 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
  * contains the start or all of the first cryptographic handshake message. The
  * first CRYPTO frame sent always begins at an offset of 0; see Section 7.
  *
+ * If the ClientHello spans multiple Initial packets, such servers would need
+ * to buffer the first received fragments, which could consume excessive
+ * resources if the client's address has not yet been validated.
+ *
  * TODO / FIXME: "start or all" -- can it continue on other frames?
  *
  * frame / packet / datagram
