@@ -583,10 +583,19 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 	uint32_t ext_start_off; // uint32_t for safety against overflows
 	uint32_t tls_start_off; // uint32_t for safety against overflows
 
-	if (prepare_get_fast(ctx, off+1))
+	// Eat padding away
+	for (;;)
 	{
-		QD_PRINTF("ENODATA 1\n");
-		return -ENODATA;
+		if (prepare_get_fast(ctx, off+1))
+		{
+			QD_PRINTF("ENODATA 1\n");
+			return -ENODATA;
+		}
+		if (data[off] != 0)
+		{
+			break;
+		}
+		off++;
 	}
 	if (data[off] != 0x06)
 	{
