@@ -885,6 +885,21 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 	return -EHOSTUNREACH;
 }
 
+/*
+ * The first packet sent by a client always includes a CRYPTO frame that
+ * contains the start or all of the first cryptographic handshake message. The
+ * first CRYPTO frame sent always begins at an offset of 0; see Section 7.
+ *
+ * TODO / FIXME: "start or all" -- can it continue on other frames?
+ *
+ * frame / packet / datagram
+ * - packet contains 1 or many frames
+ * - A UDP datagram can include one or more QUIC packets.
+ *
+ * Frames always fit within a single QUIC packet and cannot span multiple
+ * packets.
+ */
+
 int main(int argc, char **argv)
 {
 	struct quic_ctx ctx;
