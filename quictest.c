@@ -9,6 +9,12 @@
 
 #undef QUICDEBUG
 
+#ifdef QUICDEBUG
+#define QD_PRINTF printf
+#else
+#define QD_PRINTF if(0) printf
+#endif
+
 const uint8_t precalc_label_client_in[] = {0x00, 0x20, 0x0f, 0x74, 0x6c, 0x73, 0x31, 0x33, 0x20, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x20, 0x69, 0x6e, 0x00}; // constant
 const uint8_t precalc_label_quic_hp[] = {0x00, 0x10, 0x0d, 0x74, 0x6c, 0x73, 0x31, 0x33, 0x20, 0x71, 0x75, 0x69, 0x63, 0x20, 0x68, 0x70, 0x00}; // constant
 const uint8_t precalc_label_quic_iv[] = {0x00, 0x0c, 0x0d, 0x74, 0x6c, 0x73, 0x31, 0x33, 0x20, 0x71, 0x75, 0x69, 0x63, 0x20, 0x69, 0x76, 0x00}; // constant
@@ -579,7 +585,7 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 
 	if (prepare_get_fast(ctx, off+1))
 	{
-		printf("ENODATA 1\n");
+		QD_PRINTF("ENODATA 1\n");
 		return -ENODATA;
 	}
 	if (data[off] != 0x06)
@@ -590,7 +596,7 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 
 	if (prepare_get_fast(ctx, off+1))
 	{
-		printf("ENODATA 2\n");
+		QD_PRINTF("ENODATA 2\n");
 		return -ENODATA;
 	}
 
@@ -603,7 +609,7 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 		case 1:
 			if (prepare_get_fast(ctx, off+2))
 			{
-				printf("ENODATA 3\n");
+				QD_PRINTF("ENODATA 3\n");
 				return -ENODATA;
 			}
 			offset_in_packet =
@@ -614,7 +620,7 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 		case 2:
 			if (prepare_get_fast(ctx, off+4))
 			{
-				printf("ENODATA 4\n");
+				QD_PRINTF("ENODATA 4\n");
 				return -ENODATA;
 			}
 			offset_in_packet =
@@ -627,7 +633,7 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 		case 3:
 			if (prepare_get_fast(ctx, off+8))
 			{
-				printf("ENODATA 5\n");
+				QD_PRINTF("ENODATA 5\n");
 				return -ENODATA;
 			}
 			offset_in_packet =
@@ -645,7 +651,7 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 
 	if (prepare_get_fast(ctx, off+1))
 	{
-		printf("ENODATA 6\n");
+		QD_PRINTF("ENODATA 6\n");
 		return -ENODATA;
 	}
 
@@ -658,7 +664,7 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 		case 1:
 			if (prepare_get_fast(ctx, off+2))
 			{
-				printf("ENODATA 7\n");
+				QD_PRINTF("ENODATA 7\n");
 				return -ENODATA;
 			}
 			length_in_packet =
@@ -669,7 +675,7 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 		case 2:
 			if (prepare_get_fast(ctx, off+4))
 			{
-				printf("ENODATA 8\n");
+				QD_PRINTF("ENODATA 8\n");
 				return -ENODATA;
 			}
 			length_in_packet =
@@ -682,7 +688,7 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 		case 3:
 			if (prepare_get_fast(ctx, off+8))
 			{
-				printf("ENODATA 9\n");
+				QD_PRINTF("ENODATA 9\n");
 				return -ENODATA;
 			}
 			length_in_packet =
@@ -700,14 +706,14 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 	if (length_in_packet > (uint64_t)UINT16_MAX ||
 	    length_in_packet > (uint64_t)INT_MAX)
 	{
-		printf("ENODATA 9.25\n");
+		QD_PRINTF("ENODATA 9.25\n");
 		return -ENODATA;
 	}
 	if (((int)off) + ((int)length_in_packet) + 16 > ((int)ctx->payoff) + ((int)ctx->len) - ((int)ctx->pnumlen))
 	{
-		printf("Left side: %d\n", (int)(off + length_in_packet + 16));
-		printf("Right side: %d\n", (int)(ctx->payoff + ctx->len - ctx->pnumlen));
-		printf("ENODATA 9.5\n");
+		QD_PRINTF("Left side: %d\n", (int)(off + length_in_packet + 16));
+		QD_PRINTF("Right side: %d\n", (int)(ctx->payoff + ctx->len - ctx->pnumlen));
+		QD_PRINTF("ENODATA 9.5\n");
 		return -ENODATA;
 	}
 	// 1 byte client hello (0x1)
@@ -717,7 +723,7 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 	// 1 bytes session ID length
 	if (prepare_get_fast(ctx, off+39))
 	{
-		printf("ENODATA 10\n");
+		QD_PRINTF("ENODATA 10\n");
 		return -ENODATA;
 	}
 	if (data[off] != 0x1)
@@ -731,14 +737,14 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 		data[off+2];
 	if (tlslen + 4 > length_in_packet)
 	{
-		printf("ENODATA 10.5\n");
+		QD_PRINTF("ENODATA 10.5\n");
 		return -ENODATA;
 	}
 	off += 3;
 	tls_start_off = off;
 	if (off + 2 + 32 + 1 > tls_start_off + tlslen)
 	{
-		printf("ENODATA 10.6\n");
+		QD_PRINTF("ENODATA 10.6\n");
 		return -ENODATA;
 	}
 	if (data[off] != 0x03 || data[off+1] != 0x03)
@@ -751,12 +757,12 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 	off += 1;
 	if (off + session_id_length + 2 > tls_start_off + tlslen)
 	{
-		printf("ENODATA 10.7\n");
+		QD_PRINTF("ENODATA 10.7\n");
 		return -ENODATA;
 	}
 	if (prepare_get_fast(ctx, off+session_id_length+2))
 	{
-		printf("ENODATA 11\n");
+		QD_PRINTF("ENODATA 11\n");
 		return -ENODATA;
 	}
 	off += session_id_length;
@@ -764,12 +770,12 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 	off += 2;
 	if (off + cipher_suites_length + 1 > tls_start_off + tlslen)
 	{
-		printf("ENODATA 11.5\n");
+		QD_PRINTF("ENODATA 11.5\n");
 		return -ENODATA;
 	}
 	if (prepare_get_fast(ctx, off+cipher_suites_length+1))
 	{
-		printf("ENODATA 12\n");
+		QD_PRINTF("ENODATA 12\n");
 		return -ENODATA;
 	}
 	off += cipher_suites_length;
@@ -777,12 +783,12 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 	off += 1;
 	if (off + compression_methods_length + 2 > tls_start_off + tlslen)
 	{
-		printf("ENODATA 12.5\n");
+		QD_PRINTF("ENODATA 12.5\n");
 		return -ENODATA;
 	}
 	if (prepare_get_fast(ctx, off+compression_methods_length+2))
 	{
-		printf("ENODATA 13\n");
+		QD_PRINTF("ENODATA 13\n");
 		return -ENODATA;
 	}
 	off += compression_methods_length;
@@ -790,9 +796,9 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 	off += 2;
 	if (off + extensions_length > tls_start_off + tlslen)
 	{
-		printf("Left side: %d\n", (int)(off + extensions_length));
-		printf("Right side: %d\n", (int)(tls_start_off + tlslen));
-		printf("ENODATA 13.5\n");
+		QD_PRINTF("Left side: %d\n", (int)(off + extensions_length));
+		QD_PRINTF("Right side: %d\n", (int)(tls_start_off + tlslen));
+		QD_PRINTF("ENODATA 13.5\n");
 		return -ENODATA;
 	}
 	ext_start_off = off;
@@ -803,12 +809,12 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 		uint16_t sname_list_len;
 		if (prepare_get_fast(ctx, off+4))
 		{
-			printf("ENODATA 14\n");
+			QD_PRINTF("ENODATA 14\n");
 			return -ENODATA;
 		}
 		if (off + 4 > ext_start_off + extensions_length)
 		{
-			printf("ENODATA 14.3\n");
+			QD_PRINTF("ENODATA 14.3\n");
 			return -ENODATA;
 		}
 		ext_type = (((uint16_t)data[off])<<8) | data[off+1];
@@ -817,12 +823,12 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 		off += 2;
 		if (off + ext_len > ext_start_off + extensions_length)
 		{
-			printf("ENODATA 14.7\n");
+			QD_PRINTF("ENODATA 14.7\n");
 			return -ENODATA;
 		}
 		if (prepare_get_fast(ctx, off+ext_len))
 		{
-			printf("ENODATA 15\n");
+			QD_PRINTF("ENODATA 15\n");
 			return -ENODATA;
 		}
 		if (ext_type != 0 || ext_len < 2)
@@ -834,7 +840,7 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 		sname_list_len = (((uint16_t)data[off])<<8) | data[off+1];
 		if (ext_len < sname_list_len + 2)
 		{
-			printf("ENODATA 16\n");
+			QD_PRINTF("ENODATA 16\n");
 			return -ENODATA;
 		}
 		off += 2;
@@ -846,14 +852,14 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 			off++;
 			if (off + 2 > ext_data_start_off + 2 + sname_list_len)
 			{
-				printf("ENODATA 17\n");
+				QD_PRINTF("ENODATA 17\n");
 				return -ENODATA;
 			}
 			sname_len = (((uint16_t)data[off])<<8) | data[off+1];
 			off += 2;
 			if (off + sname_len > ext_data_start_off + 2 + sname_list_len)
 			{
-				printf("ENODATA 18\n");
+				QD_PRINTF("ENODATA 18\n");
 				return -ENODATA;
 			}
 			if (sname_type == 0)
@@ -862,12 +868,12 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 				*hlen = sname_len;
 				/*
 				int i;
-				printf("Found SNI: ");
+				QD_PRINTF("Found SNI: ");
 				for (i = 0; i < sname_len; i++)
 				{
-					printf("%c", data[off+i]);
+					QD_PRINTF("%c", data[off+i]);
 				}
-				printf("\n");
+				QD_PRINTF("\n");
 				*/
 				return 0;
 			}
