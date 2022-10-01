@@ -76,7 +76,7 @@ int prepare_get(struct quic_ctx *ctx, uint16_t new_first_nondecrypted_off)
 		*/
 		int maxbound = 16;
 		int maxbound2 =
-			((int)ctx->payoff) + ((int)ctx->len) - ((int)ctx->pnumlen) - ((int)ctx->first_nondecrypted_off);
+			((int)ctx->payoff) + ((int)ctx->len) - ((int)ctx->pnumlen) - ((int)ctx->first_nondecrypted_off) - 16; // 16 for AEAD tag
 		if (maxbound2 < maxbound)
 		{
 			maxbound = maxbound2;
