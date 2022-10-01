@@ -796,7 +796,6 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 		return -ENODATA;
 	}
 	ext_start_off = off;
-	// FIXME check continuously that we don't get past extensions_length
 	while (off < ext_start_off + extensions_length)
 	{
 		uint16_t ext_type, ext_len;
@@ -807,16 +806,26 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 			printf("ENODATA 14\n");
 			return -ENODATA;
 		}
+		if (off + 4 > ext_start_off + extensions_length)
+		{
+			printf("ENODATA 14.3\n");
+			return -ENODATA;
+		}
 		ext_type = (((uint16_t)data[off])<<8) | data[off+1];
 		off += 2;
 		ext_len = (((uint16_t)data[off])<<8) | data[off+1];
 		off += 2;
+		if (off + ext_len > ext_start_off + extensions_length)
+		{
+			printf("ENODATA 14.7\n");
+			return -ENODATA;
+		}
 		if (prepare_get_fast(ctx, off+ext_len))
 		{
 			printf("ENODATA 15\n");
 			return -ENODATA;
 		}
-		if (ext_type != 0)
+		if (ext_type != 0 || ext_len < 2)
 		{
 			off += ext_len;
 			continue;
