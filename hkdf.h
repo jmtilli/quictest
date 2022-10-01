@@ -4,6 +4,9 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "sha_hp.h"
+#include "sha_pd.h"
+
+#undef SHA_HP
 
 void hmac_hash(uint8_t finalresult[32],
                const void *initial_salt, size_t initial_salt_len,
@@ -31,7 +34,11 @@ void hkdf_expand_label_precalc(void *result, uint16_t result_len,
                                const uint8_t prk[32]);
 
 struct sha256_ctx {
+#ifdef SHA_HP
 	sha256_ctx meat;
+#else
+	sha256_pd meat;
+#endif
 };
 
 void sha256_ctx_init(struct sha256_ctx *ctx);

@@ -566,7 +566,8 @@ int main(int argc, char **argv)
 	}
 	//printf("Expected: 06 00 40 f1 01 00 00 ed 03 03 eb f8 fa 56 f1 29 ..\n");
 
-	//5.676 s per 1M packets
+	// 5.2 s per 1M packets (SHA256 high performance)
+	// 5.5 s per 1M packets (SHA256 public domain)
 	for (i = 0; i < 1000*1000; i++)
 	{
 		quic_init(&in, &ctx, quic_data, sizeof(quic_data));
