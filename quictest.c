@@ -512,8 +512,7 @@ const uint8_t quic_data[] = {
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
-/*
-const uint8_t quic_data[] = {
+const uint8_t official_data[] = {
 0xc0, 0x00, 0x00, 0x00, 0x01, 0x08, 0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08, 0x00, 0x00, 0x44, 0x9e, 0x7b, 0x9a, 0xec, 0x34, 0xd1, 0xb1, 0xc9, 0x8d, 0xd7, 0x68, 0x9f, 0xb8, 0xec, 0x11,
 0xd2, 0x42, 0xb1, 0x23, 0xdc, 0x9b, 0xd8, 0xba, 0xb9, 0x36, 0xb4, 0x7d, 0x92, 0xec, 0x35, 0x6c, 0x0b, 0xab, 0x7d, 0xf5, 0x97, 0x6d, 0x27, 0xcd, 0x44, 0x9f, 0x63, 0x30, 0x00, 0x99, 0xf3, 0x99,
 0x1c, 0x26, 0x0e, 0xc4, 0xc6, 0x0d, 0x17, 0xb3, 0x1f, 0x84, 0x29, 0x15, 0x7b, 0xb3, 0x5a, 0x12, 0x82, 0xa6, 0x43, 0xa8, 0xd2, 0x26, 0x2c, 0xad, 0x67, 0x50, 0x0c, 0xad, 0xb8, 0xe7, 0x37, 0x8c,
@@ -553,7 +552,111 @@ const uint8_t quic_data[] = {
 0x7e, 0x78, 0xbf, 0xe7, 0x06, 0xca, 0x4c, 0xf5, 0xe9, 0xc5, 0x45, 0x3e, 0x9f, 0x7c, 0xfd, 0x2b, 0x8b, 0x4c, 0x8d, 0x16, 0x9a, 0x44, 0xe5, 0x5c, 0x88, 0xd4, 0xa9, 0xa7, 0xf9, 0x47, 0x42, 0x41,
 0xe2, 0x21, 0xaf, 0x44, 0x86, 0x00, 0x18, 0xab, 0x08, 0x56, 0x97, 0x2e, 0x19, 0x4c, 0xd9, 0x34
 };
-*/
+
+static inline int eat_varint(struct quic_ctx *ctx, uint32_t *poff)
+{
+	uint32_t off = *poff;
+	const uint8_t *data = (const uint8_t*)&ctx->quic_data;
+	if (prepare_get_fast(ctx, off+1))
+	{
+		QD_PRINTF("ENODATA EAT_VARINT 1\n");
+		return -ENODATA;
+	}
+	switch (data[off]>>6)
+	{
+		case 0:
+			off += 1;
+			break;
+		case 1:
+			if (prepare_get_fast(ctx, off+2))
+			{
+				QD_PRINTF("ENODATA EAT_VARINT 2\n");
+				return -ENODATA;
+			}
+			off += 2;
+			break;
+		case 2:
+			if (prepare_get_fast(ctx, off+4))
+			{
+				QD_PRINTF("ENODATA EAT_VARINT 3\n");
+				return -ENODATA;
+			}
+			off += 4;
+			break;
+		case 3:
+			if (prepare_get_fast(ctx, off+8))
+			{
+				QD_PRINTF("ENODATA EAT_VARINT 4\n");
+				return -ENODATA;
+			}
+			off += 8;
+			break;
+	}
+	*poff = off;
+	return 0;
+}
+static inline int read_varint(struct quic_ctx *ctx, uint32_t *poff, uint64_t *p)
+{
+	uint32_t off = *poff;
+	uint64_t val;
+	const uint8_t *data = (const uint8_t*)&ctx->quic_data;
+	if (prepare_get_fast(ctx, off+1))
+	{
+		QD_PRINTF("ENODATA EAT_VARINT 1\n");
+		return -ENODATA;
+	}
+	switch (data[off]>>6)
+	{
+		case 0:
+			val = data[off]&0x3f;
+			off += 1;
+			break;
+		case 1:
+			if (prepare_get_fast(ctx, off+2))
+			{
+				QD_PRINTF("ENODATA EAT_VARINT 2\n");
+				return -ENODATA;
+			}
+			val =
+				(((uint64_t)data[off]&0x3f) << 8) |
+				 ((uint64_t)data[off+1]);
+			off += 2;
+			break;
+		case 2:
+			if (prepare_get_fast(ctx, off+4))
+			{
+				QD_PRINTF("ENODATA EAT_VARINT 3\n");
+				return -ENODATA;
+			}
+			val =
+				(((uint64_t)data[off]&0x3f) << 24) |
+				 (((uint64_t)data[off+1]) << 16) |
+				 (((uint64_t)data[off+2]) << 8) |
+				 ((uint64_t)data[off+3]);
+			off += 4;
+			break;
+		case 3:
+			if (prepare_get_fast(ctx, off+8))
+			{
+				QD_PRINTF("ENODATA EAT_VARINT 4\n");
+				return -ENODATA;
+			}
+			val =
+				(((uint64_t)data[off]&0x3f) << 56) |
+				 (((uint64_t)data[off+1]) << 48) |
+				 (((uint64_t)data[off+2]) << 40) |
+				 (((uint64_t)data[off+3]) << 32) |
+				 (((uint64_t)data[off+1]) << 24) |
+				 (((uint64_t)data[off+2]) << 16) |
+				 (((uint64_t)data[off+3]) << 8) |
+				 ((uint64_t)data[off+1]);
+			off += 8;
+			break;
+	}
+	*poff = off;
+	*p = val;
+	return 0;
+}
 
 int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 {
@@ -583,7 +686,7 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 	uint32_t ext_start_off; // uint32_t for safety against overflows
 	uint32_t tls_start_off; // uint32_t for safety against overflows
 
-	// Eat padding away
+	// Eat padding, ping and ACK frames away
 	for (;;)
 	{
 		if (prepare_get_fast(ctx, off+1))
@@ -591,7 +694,58 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 			QD_PRINTF("ENODATA 1\n");
 			return -ENODATA;
 		}
-		if (data[off] != 0)
+		if (data[off] == 0x02 || data[off] == 0x03)
+		{
+			// ACK frame
+			uint64_t ack_range_cnt;
+			uint64_t i;
+			int contains_ecn = !!(data[off] == 0x03);
+			off++;
+			if (eat_varint(ctx, &off))
+			{
+				return -ENODATA;
+			}
+			if (eat_varint(ctx, &off))
+			{
+				return -ENODATA;
+			}
+			if (read_varint(ctx, &off, &ack_range_cnt))
+			{
+				return -ENODATA;
+			}
+			if (eat_varint(ctx, &off))
+			{
+				return -ENODATA;
+			}
+			for (i = 0; i < ack_range_cnt; i++)
+			{
+				if (eat_varint(ctx, &off))
+				{
+					return -ENODATA;
+				}
+				if (eat_varint(ctx, &off))
+				{
+					return -ENODATA;
+				}
+			}
+			if (contains_ecn)
+			{
+				if (eat_varint(ctx, &off))
+				{
+					return -ENODATA;
+				}
+				if (eat_varint(ctx, &off))
+				{
+					return -ENODATA;
+				}
+				if (eat_varint(ctx, &off))
+				{
+					return -ENODATA;
+				}
+			}
+			continue;
+		}
+		else if (data[off] != 0x00 && data[off] != 0x01)
 		{
 			break;
 		}
