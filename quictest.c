@@ -923,6 +923,13 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
  * during the handshake could allow for larger keys or credentials to be
  * exchanged. And endpoint's buffer size does not need to remain
  * constant during the life of the connection.
+ *
+ * The payload of an Initial packet includes a CRYPTO frame (or frames)
+ * containing a cryptographic handshake message, ACK frames, or both.
+ * PING, PADDING, and CONNECTION_CLOSE frames of type 0x1c are also
+ * permitted.  An endpoint that receives an Initial packet containing
+ * other frames can either discard the packet as spurious or treat it as
+ * a connection error.
  */
 
 int main(int argc, char **argv)
