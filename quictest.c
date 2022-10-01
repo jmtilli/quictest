@@ -745,6 +745,35 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 			}
 			continue;
 		}
+		else if (data[off] == 0x1c)
+		{
+			// CONNECTION_CLOSE frame
+			uint64_t reason_phrase_length;
+			off++;
+			if (eat_varint(ctx, &off)) // error code
+			{
+				return -ENODATA;
+			}
+			if (eat_varint(ctx, &off)) // frame type
+			{
+				return -ENODATA;
+			}
+			if (read_varint(ctx, &off, &reason_phrase_length))
+			{
+				return -ENODATA;
+			}
+			if (off + reason_phrase_length > UINT16_MAX)
+			{
+				return -ENODATA;
+			}
+			if (prepare_get_fast(ctx, off+reason_phrase_length))
+			{
+				QD_PRINTF("ENODATA 0x1c\n");
+				return -ENODATA;
+			}
+			off += reason_phrase_length;
+			continue;
+		}
 		else if (data[off] != 0x00 && data[off] != 0x01)
 		{
 			break;
