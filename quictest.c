@@ -29,7 +29,7 @@ struct quic_ctx {
 	uint16_t payload_len;
 	uint16_t dataop_remain;
 	uint16_t dataop_outoff;
-	uint32_t al_cnt; // FIXME initialize to 0
+	uint32_t al_cnt;
 	uint8_t cur_iv[16];
 	uint8_t cur_cryptostream[16];
 	uint16_t off;
@@ -455,7 +455,12 @@ int quic_init(struct aes_initer *in, struct quic_ctx *ctx, const uint8_t *data, 
 	ctx->siz = (uint16_t)siz;
 	memcpy(ctx->quic_data, data, ctx->siz);
 	calc_stream(ctx);
-	return 0;
+
+	if (siz <= ctx->payoff + len - ctx->pnumlen)
+	{
+		return 0;
+	}
+	return ctx->payoff + len - ctx->pnumlen;
 }
 
 /*
@@ -1382,6 +1387,7 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 {
 	struct quic_ctx *c = ctx;
 	const uint8_t *data = (const uint8_t*)&ctx->quic_data;
+	int ret;
 	uint32_t off = ctx->payoff; // uint32_t for safety against overflows
 	uint64_t offset_in_packet;
 	// Outside CRYPTO frame, there's another length field (ctx->len). If
@@ -1416,281 +1422,354 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 	}
 	c->off = 0;
 
-	// FIXME loop just in case there are multiple CRYPTO frames
-
-	// Eat padding, ping and ACK frames away
-	for (;;)
+	while (c->off < c->payload_len)
 	{
-		if (may_pull(ctx, 1))
+		// Eat padding, ping and ACK frames away
+		for (;;)
 		{
-			QD_PRINTF("ENODATA 1\n");
+			if (may_pull(ctx, 1))
+			{
+				QD_PRINTF("ENODATA 1\n");
+				return -ENODATA;
+			}
+			if (c->past_data[0] == 0x02 || c->past_data[0] == 0x03)
+			{
+				// ACK frame
+				uint64_t ack_range_cnt;
+				uint64_t i;
+				int contains_ecn = !!(c->past_data[0] == 0x03);
+				off++;
+				if (may_pull_varint(ctx, NULL))
+				{
+					return -ENODATA;
+				}
+				if (may_pull_varint(ctx, NULL))
+				{
+					return -ENODATA;
+				}
+				if (may_pull_varint(ctx, &ack_range_cnt))
+				{
+					return -ENODATA;
+				}
+				if (may_pull_varint(ctx, NULL))
+				{
+					return -ENODATA;
+				}
+				for (i = 0; i < ack_range_cnt; i++)
+				{
+					if (may_pull_varint(ctx, NULL))
+					{
+						return -ENODATA;
+					}
+					if (may_pull_varint(ctx, NULL))
+					{
+						return -ENODATA;
+					}
+				}
+				if (contains_ecn)
+				{
+					if (may_pull_varint(ctx, NULL))
+					{
+						return -ENODATA;
+					}
+					if (may_pull_varint(ctx, NULL))
+					{
+						return -ENODATA;
+					}
+					if (may_pull_varint(ctx, NULL))
+					{
+						return -ENODATA;
+					}
+				}
+				continue;
+			}
+			else if (c->past_data[0] == 0x1c)
+			{
+				// CONNECTION_CLOSE frame
+				uint64_t reason_phrase_length;
+				off++;
+				if (may_pull_varint(ctx, NULL)) // error code
+				{
+					return -ENODATA;
+				}
+				if (may_pull_varint(ctx, NULL)) // frame type
+				{
+					return -ENODATA;
+				}
+				if (may_pull_varint(ctx, &reason_phrase_length))
+				{
+					return -ENODATA;
+				}
+				//if (off + reason_phrase_length > UINT16_MAX)
+				if (reason_phrase_length > UINT16_MAX)
+				{
+					return -ENODATA;
+				}
+				if (ctx_skip(ctx, reason_phrase_length))
+				{
+					QD_PRINTF("ENODATA 0x1c\n");
+					return -ENODATA;
+				}
+				off += reason_phrase_length;
+				continue;
+			}
+			else if (c->past_data[0] != 0x00 && c->past_data[0] != 0x01)
+			{
+				break;
+			}
+			//off++;
+		}
+		if (c->past_data[0] != 0x06)
+		{
+			return -ENOMSG;
+		}
+		//off += 1;
+
+		if (may_pull_varint(ctx, &offset_in_packet))
+		{
+			QD_PRINTF("ENODATA 2\n");
 			return -ENODATA;
 		}
-		if (c->past_data[0] == 0x02 || c->past_data[0] == 0x03)
-		{
-			// ACK frame
-			uint64_t ack_range_cnt;
-			uint64_t i;
-			int contains_ecn = !!(c->past_data[0] == 0x03);
-			off++;
-			if (may_pull_varint(ctx, NULL))
-			{
-				return -ENODATA;
-			}
-			if (may_pull_varint(ctx, NULL))
-			{
-				return -ENODATA;
-			}
-			if (may_pull_varint(ctx, &ack_range_cnt))
-			{
-				return -ENODATA;
-			}
-			if (may_pull_varint(ctx, NULL))
-			{
-				return -ENODATA;
-			}
-			for (i = 0; i < ack_range_cnt; i++)
-			{
-				if (may_pull_varint(ctx, NULL))
-				{
-					return -ENODATA;
-				}
-				if (may_pull_varint(ctx, NULL))
-				{
-					return -ENODATA;
-				}
-			}
-			if (contains_ecn)
-			{
-				if (may_pull_varint(ctx, NULL))
-				{
-					return -ENODATA;
-				}
-				if (may_pull_varint(ctx, NULL))
-				{
-					return -ENODATA;
-				}
-				if (may_pull_varint(ctx, NULL))
-				{
-					return -ENODATA;
-				}
-			}
-			continue;
-		}
-		else if (c->past_data[0] == 0x1c)
-		{
-			// CONNECTION_CLOSE frame
-			uint64_t reason_phrase_length;
-			off++;
-			if (may_pull_varint(ctx, NULL)) // error code
-			{
-				return -ENODATA;
-			}
-			if (may_pull_varint(ctx, NULL)) // frame type
-			{
-				return -ENODATA;
-			}
-			if (may_pull_varint(ctx, &reason_phrase_length))
-			{
-				return -ENODATA;
-			}
-			//if (off + reason_phrase_length > UINT16_MAX)
-			if (reason_phrase_length > UINT16_MAX)
-			{
-				return -ENODATA;
-			}
-			if (ctx_skip(ctx, reason_phrase_length))
-			{
-				QD_PRINTF("ENODATA 0x1c\n");
-				return -ENODATA;
-			}
-			off += reason_phrase_length;
-			continue;
-		}
-		else if (c->past_data[0] != 0x00 && c->past_data[0] != 0x01)
-		{
-			break;
-		}
-		//off++;
-	}
-	if (c->past_data[0] != 0x06)
-	{
-		return -ENOMSG;
-	}
-	//off += 1;
-
-	if (may_pull_varint(ctx, &offset_in_packet))
-	{
-		QD_PRINTF("ENODATA 2\n");
-		return -ENODATA;
-	}
 #if 0
-	if (prepare_get_fast(ctx, off+1))
-	{
-		QD_PRINTF("ENODATA 2\n");
-		return -ENODATA;
-	}
+		if (prepare_get_fast(ctx, off+1))
+		{
+			QD_PRINTF("ENODATA 2\n");
+			return -ENODATA;
+		}
 
-	switch (data[off]>>6)
-	{
-		case 0:
-			offset_in_packet = data[off]&0x3f;
-			off += 1;
-			break;
-		case 1:
-			if (prepare_get_fast(ctx, off+2))
-			{
-				QD_PRINTF("ENODATA 3\n");
-				return -ENODATA;
-			}
-			offset_in_packet =
-				(((uint64_t)data[off]&0x3f) << 8) |
-				 ((uint64_t)data[off+1]);
-			off += 2;
-			break;
-		case 2:
-			if (prepare_get_fast(ctx, off+4))
-			{
-				QD_PRINTF("ENODATA 4\n");
-				return -ENODATA;
-			}
-			offset_in_packet =
-				(((uint64_t)data[off]&0x3f) << 24) |
-				 (((uint64_t)data[off+1]) << 16) |
-				 (((uint64_t)data[off+2]) << 8) |
-				 ((uint64_t)data[off+3]);
-			off += 4;
-			break;
-		case 3:
-			if (prepare_get_fast(ctx, off+8))
-			{
-				QD_PRINTF("ENODATA 5\n");
-				return -ENODATA;
-			}
-			offset_in_packet =
-				(((uint64_t)data[off]&0x3f) << 56) |
-				 (((uint64_t)data[off+1]) << 48) |
-				 (((uint64_t)data[off+2]) << 40) |
-				 (((uint64_t)data[off+3]) << 32) |
-				 (((uint64_t)data[off+1]) << 24) |
-				 (((uint64_t)data[off+2]) << 16) |
-				 (((uint64_t)data[off+3]) << 8) |
-				 ((uint64_t)data[off+1]);
-			off += 8;
-			break;
-	}
+		switch (data[off]>>6)
+		{
+			case 0:
+				offset_in_packet = data[off]&0x3f;
+				off += 1;
+				break;
+			case 1:
+				if (prepare_get_fast(ctx, off+2))
+				{
+					QD_PRINTF("ENODATA 3\n");
+					return -ENODATA;
+				}
+				offset_in_packet =
+					(((uint64_t)data[off]&0x3f) << 8) |
+					 ((uint64_t)data[off+1]);
+				off += 2;
+				break;
+			case 2:
+				if (prepare_get_fast(ctx, off+4))
+				{
+					QD_PRINTF("ENODATA 4\n");
+					return -ENODATA;
+				}
+				offset_in_packet =
+					(((uint64_t)data[off]&0x3f) << 24) |
+					 (((uint64_t)data[off+1]) << 16) |
+					 (((uint64_t)data[off+2]) << 8) |
+					 ((uint64_t)data[off+3]);
+				off += 4;
+				break;
+			case 3:
+				if (prepare_get_fast(ctx, off+8))
+				{
+					QD_PRINTF("ENODATA 5\n");
+					return -ENODATA;
+				}
+				offset_in_packet =
+					(((uint64_t)data[off]&0x3f) << 56) |
+					 (((uint64_t)data[off+1]) << 48) |
+					 (((uint64_t)data[off+2]) << 40) |
+					 (((uint64_t)data[off+3]) << 32) |
+					 (((uint64_t)data[off+1]) << 24) |
+					 (((uint64_t)data[off+2]) << 16) |
+					 (((uint64_t)data[off+3]) << 8) |
+					 ((uint64_t)data[off+1]);
+				off += 8;
+				break;
+		}
 #endif
-	if (may_pull_varint(ctx, &length_in_packet))
-	{
-		QD_PRINTF("ENODATA 2\n");
-		return -ENODATA;
-	}
+		if (may_pull_varint(ctx, &length_in_packet))
+		{
+			QD_PRINTF("ENODATA 2\n");
+			return -ENODATA;
+		}
 
 #if 0
-	if (prepare_get_fast(ctx, off+1))
-	{
-		QD_PRINTF("ENODATA 6\n");
-		return -ENODATA;
-	}
+		if (prepare_get_fast(ctx, off+1))
+		{
+			QD_PRINTF("ENODATA 6\n");
+			return -ENODATA;
+		}
 
-	switch (data[off]>>6)
-	{
-		case 0:
-			length_in_packet = data[off]&0x3f;
-			off += 1;
-			break;
-		case 1:
-			if (prepare_get_fast(ctx, off+2))
-			{
-				QD_PRINTF("ENODATA 7\n");
-				return -ENODATA;
-			}
-			length_in_packet =
-				(((uint64_t)data[off]&0x3f) << 8) |
-				 ((uint64_t)data[off+1]);
-			off += 2;
-			break;
-		case 2:
-			if (prepare_get_fast(ctx, off+4))
-			{
-				QD_PRINTF("ENODATA 8\n");
-				return -ENODATA;
-			}
-			length_in_packet =
-				(((uint64_t)data[off]&0x3f) << 24) |
-				 (((uint64_t)data[off+1]) << 16) |
-				 (((uint64_t)data[off+2]) << 8) |
-				 ((uint64_t)data[off+3]);
-			off += 4;
-			break;
-		case 3:
-			if (prepare_get_fast(ctx, off+8))
-			{
-				QD_PRINTF("ENODATA 9\n");
-				return -ENODATA;
-			}
-			length_in_packet =
-				(((uint64_t)data[off]&0x3f) << 56) |
-				 (((uint64_t)data[off+1]) << 48) |
-				 (((uint64_t)data[off+2]) << 40) |
-				 (((uint64_t)data[off+3]) << 32) |
-				 (((uint64_t)data[off+1]) << 24) |
-				 (((uint64_t)data[off+2]) << 16) |
-				 (((uint64_t)data[off+3]) << 8) |
-				 ((uint64_t)data[off+1]);
-			off += 8;
-			break;
-	}
+		switch (data[off]>>6)
+		{
+			case 0:
+				length_in_packet = data[off]&0x3f;
+				off += 1;
+				break;
+			case 1:
+				if (prepare_get_fast(ctx, off+2))
+				{
+					QD_PRINTF("ENODATA 7\n");
+					return -ENODATA;
+				}
+				length_in_packet =
+					(((uint64_t)data[off]&0x3f) << 8) |
+					 ((uint64_t)data[off+1]);
+				off += 2;
+				break;
+			case 2:
+				if (prepare_get_fast(ctx, off+4))
+				{
+					QD_PRINTF("ENODATA 8\n");
+					return -ENODATA;
+				}
+				length_in_packet =
+					(((uint64_t)data[off]&0x3f) << 24) |
+					 (((uint64_t)data[off+1]) << 16) |
+					 (((uint64_t)data[off+2]) << 8) |
+					 ((uint64_t)data[off+3]);
+				off += 4;
+				break;
+			case 3:
+				if (prepare_get_fast(ctx, off+8))
+				{
+					QD_PRINTF("ENODATA 9\n");
+					return -ENODATA;
+				}
+				length_in_packet =
+					(((uint64_t)data[off]&0x3f) << 56) |
+					 (((uint64_t)data[off+1]) << 48) |
+					 (((uint64_t)data[off+2]) << 40) |
+					 (((uint64_t)data[off+3]) << 32) |
+					 (((uint64_t)data[off+1]) << 24) |
+					 (((uint64_t)data[off+2]) << 16) |
+					 (((uint64_t)data[off+3]) << 8) |
+					 ((uint64_t)data[off+1]);
+				off += 8;
+				break;
+		}
 #endif
-	if (length_in_packet > (uint64_t)UINT16_MAX ||
-	    length_in_packet > (uint64_t)INT_MAX)
-	{
-		QD_PRINTF("ENODATA 9.25\n");
-		return -ENODATA;
-	}
+		if (length_in_packet > (uint64_t)UINT16_MAX ||
+		    length_in_packet > (uint64_t)INT_MAX)
+		{
+			QD_PRINTF("ENODATA 9.25\n");
+			return -ENODATA;
+		}
 #if 0
-	printf("length_in_packet %d\n", (int)length_in_packet);
-	if (((int)off) + ((int)length_in_packet) + 16 > ((int)ctx->payoff) + ((int)ctx->len) - ((int)ctx->pnumlen))
-	{
-		QD_PRINTF("Left side: %d\n", (int)(off + length_in_packet + 16));
-		QD_PRINTF("Right side: %d\n", (int)(ctx->payoff + ctx->len - ctx->pnumlen));
-		QD_PRINTF("ENODATA 9.5\n");
-		return -ENODATA;
-	}
+		printf("length_in_packet %d\n", (int)length_in_packet);
+		if (((int)off) + ((int)length_in_packet) + 16 > ((int)ctx->payoff) + ((int)ctx->len) - ((int)ctx->pnumlen))
+		{
+			QD_PRINTF("Left side: %d\n", (int)(off + length_in_packet + 16));
+			QD_PRINTF("Right side: %d\n", (int)(ctx->payoff + ctx->len - ctx->pnumlen));
+			QD_PRINTF("ENODATA 9.5\n");
+			return -ENODATA;
+		}
 #endif
-	if (((int)c->off) + ((int)length_in_packet) > ((int)c->payload_len))
-	{
-		QD_PRINTF("Left side: %d\n", (int)(c->off + length_in_packet));
-		QD_PRINTF("Right side: %d\n", (int)(c->payload_len));
-		QD_PRINTF("ENODATA 9.5\n");
-		return -ENODATA;
+		if (((int)c->off) + ((int)length_in_packet) > ((int)c->payload_len))
+		{
+			QD_PRINTF("Left side: %d\n", (int)(c->off + length_in_packet));
+			QD_PRINTF("Right side: %d\n", (int)(c->payload_len));
+			QD_PRINTF("ENODATA 9.5\n");
+			return -ENODATA;
+		}
+		c->state = 0;
+#if 0 // For testing
+		int old_payload_len = c->payload_len;
+		for (c->payload_len = c->off+1; c->payload_len <= old_payload_len; c->payload_len+=1)
+		{
+			int ret = tls_layer(ctx, hname, hlen);
+			if (ret == 0)
+			{
+				return 0;
+			}
+			else if (ret != -EAGAIN)
+			{
+				printf("ret is %d\n", ret);
+				return ret;
+			}
+		}
+#else
+		ret = tls_layer(ctx, hname, hlen);
+		if (ret != -EAGAIN)
+		{
+			return ret;
+		}
+#endif
 	}
-	c->state = 0;
-	return tls_layer(ctx, hname, hlen);
+	return -EAGAIN;
 }
 
+void firefox_test(void)
+{
+	struct aes_initer in;
+	const char *hname;
+	size_t hlen;
+	struct quic_ctx ctx;
+	int ret = 0;
+	aes_initer_init(&in);
+	for (;;)
+	{
+		printf("FIREFOX ROUND\n");
+		ret = quic_init(&in, &ctx, quic_data + ret, sizeof(quic_data) - ret);
+		if (ret < 0)
+		{
+			break;
+		}
+		printf("sz %zu\n", sizeof(official_data));
+		printf("Payoff %d\n", (int)ctx.payoff);
+		printf("ctx.len %d\n", (int)ctx.len);
+		printf("ctx.pnumlen %d\n", (int)ctx.pnumlen);
+		//printf("%d\n", prepare_get(&ctx, new_first_nondecrypted_off));
+		if (quic_tls_sni_detect(&ctx, &hname, &hlen) == 0)
+		{
+			size_t j;
+			printf("Found SNI: ");
+			for (j = 0; j < hlen; j++)
+			{
+				printf("%c", hname[j]);
+			}
+			printf("\n");
+		}
+		if (ret == 0)
+		{
+			break;
+		}
+	}
+}
 void official_test(void)
 {
 	struct aes_initer in;
 	const char *hname;
 	size_t hlen;
 	struct quic_ctx ctx;
+	int ret = 0;
 	aes_initer_init(&in);
-	printf("%d\n", quic_init(&in, &ctx, official_data, sizeof(official_data)));
-	printf("sz %zu\n", sizeof(official_data));
-	printf("Payoff %d\n", (int)ctx.payoff);
-	printf("ctx.len %d\n", (int)ctx.len);
-	printf("ctx.pnumlen %d\n", (int)ctx.pnumlen);
-	//printf("%d\n", prepare_get(&ctx, new_first_nondecrypted_off));
-	if (quic_tls_sni_detect(&ctx, &hname, &hlen) == 0)
+	for (;;)
 	{
-		size_t j;
-		printf("Found SNI: ");
-		for (j = 0; j < hlen; j++)
+		printf("OFFICIAL ROUND\n");
+		ret = quic_init(&in, &ctx, official_data + ret, sizeof(official_data) - ret);
+		if (ret < 0)
 		{
-			printf("%c", hname[j]);
+			break;
 		}
-		printf("\n");
+		printf("sz %zu\n", sizeof(official_data));
+		printf("Payoff %d\n", (int)ctx.payoff);
+		printf("ctx.len %d\n", (int)ctx.len);
+		printf("ctx.pnumlen %d\n", (int)ctx.pnumlen);
+		//printf("%d\n", prepare_get(&ctx, new_first_nondecrypted_off));
+		if (quic_tls_sni_detect(&ctx, &hname, &hlen) == 0)
+		{
+			size_t j;
+			printf("Found SNI: ");
+			for (j = 0; j < hlen; j++)
+			{
+				printf("%c", hname[j]);
+			}
+			printf("\n");
+		}
+		if (ret == 0)
+		{
+			break;
+		}
 	}
 }
 
@@ -1804,6 +1883,7 @@ int main(int argc, char **argv)
 	//printf("Expected: 06 00 40 f1 01 00 00 ed 03 03 eb f8 fa 56 f1 29 ..\n");
 	
 	official_test();
+	firefox_test();
 
 	//return 0;
 
