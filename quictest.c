@@ -1408,6 +1408,8 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 	}
 	c->off = 0;
 
+	// FIXME loop just in case there are multiple CRYPTO frames
+
 	// Eat padding, ping and ACK frames away
 	for (;;)
 	{
