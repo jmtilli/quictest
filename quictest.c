@@ -614,6 +614,13 @@ struct ctx {
 
 void next_iv(struct quic_ctx *c)
 {
+#if 1
+	uint32_t ctr = (c->off/16) + 2;
+	c->cur_iv[12] = ctr>>24;
+	c->cur_iv[13] = ctr>>16;
+	c->cur_iv[14] = ctr>>8;
+	c->cur_iv[15] = ctr>>0;
+#else
 	int i;
 	for (i = 15; i >= 12; i--) // increment counter
 	{
@@ -623,6 +630,7 @@ void next_iv(struct quic_ctx *c)
 			break;
 		}
 	}
+#endif
 }
 
 void calc_stream(struct quic_ctx *c)
