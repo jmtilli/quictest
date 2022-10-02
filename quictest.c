@@ -2,6 +2,7 @@
 #include <string.h>
 #include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <errno.h>
 #include <stdint.h>
 #include "aes.h"
@@ -22,8 +23,18 @@ const uint8_t precalc_label_quic_key[] = {0x00, 0x10, 0x0e, 0x74, 0x6c, 0x73, 0x
 const uint8_t initial_salt[] = {0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3, 0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8, 0x0c, 0xad, 0xcc, 0xbb, 0x7f, 0x0a}; // constant
 
 struct quic_ctx {
+	uint8_t past_data[8];
+	uint8_t past_data_len;
+	const uint8_t *payload;
+	uint16_t payload_len;
+	uint16_t dataop_remain;
+	uint16_t dataop_outoff;
+	uint32_t al_cnt; // FIXME initialize to 0
+	uint8_t cur_iv[16];
+	uint8_t cur_cryptostream[16];
+	uint16_t off;
+	//uint16_t first_nondecrypted_off;
 	uint8_t quic_data[2048];
-	uint16_t first_nondecrypted_off;
 	uint16_t siz;
 	uint16_t dstcidoff;
 	uint16_t srccidoff;
@@ -38,10 +49,33 @@ struct quic_ctx {
 	uint8_t pnumlen;
 	uint32_t pnum;
 	uint8_t first_byte;
-	uint8_t cur_iv[16];
+	//uint8_t cur_iv[16];
 	struct expanded_key aes_exp;
+	uint8_t state;
+
+	// tls_layer:
+	uint32_t tlslen;
+	uint32_t ext_start_al_cnt;
+	uint8_t session_id_length;
+	uint16_t cipher_suites_length;
+	uint8_t compression_methods_length;
+	uint16_t extensions_length;
+	uint8_t sname_type;
+	uint16_t sname_len;
+	uint16_t ext_type;
+	uint16_t ext_len;
+	uint32_t ext_data_start_al_cnt;
+	uint16_t sname_list_len;
+	char hostname[256]; // 255 bytes + NUL
+	uint8_t hostname_len;
 };
 
+static inline void quic_al_cnt_reset(struct quic_ctx *ctx)
+{
+	ctx->al_cnt = 0;
+}
+
+#if 0
 int prepare_get(struct quic_ctx *ctx, uint16_t new_first_nondecrypted_off)
 {
 	uint8_t mask[16];
@@ -112,6 +146,9 @@ static inline int prepare_get_fast(struct quic_ctx *ctx, uint16_t new_first_nond
 	}
 	return prepare_get(ctx, new_first_nondecrypted_off);
 }
+#endif
+
+void calc_stream(struct quic_ctx *c);
 
 int quic_init(struct aes_initer *in, struct quic_ctx *ctx, const uint8_t *data, size_t siz)
 {
@@ -127,6 +164,9 @@ int quic_init(struct aes_initer *in, struct quic_ctx *ctx, const uint8_t *data, 
 	uint16_t lenoff;
 	struct hkdf_ctx hkdf;
 	int i;
+
+	ctx->past_data_len = 0;
+	ctx->dataop_remain = 0;
 
 	if (siz > sizeof(ctx->quic_data))
 	{
@@ -351,7 +391,9 @@ int quic_init(struct aes_initer *in, struct quic_ctx *ctx, const uint8_t *data, 
 	{
 		return -ENODATA;
 	}
+#if 0
 	ctx->first_nondecrypted_off = ctx->payoff;
+#endif
 
 
 	//ctx->cur_iv[4] ^= (ctx->pnum>>24)&0xFF;
@@ -412,6 +454,7 @@ int quic_init(struct aes_initer *in, struct quic_ctx *ctx, const uint8_t *data, 
 	}
 	ctx->siz = (uint16_t)siz;
 	memcpy(ctx->quic_data, data, ctx->siz);
+	calc_stream(ctx);
 	return 0;
 }
 
@@ -553,6 +596,412 @@ const uint8_t official_data[] = {
 0xe2, 0x21, 0xaf, 0x44, 0x86, 0x00, 0x18, 0xab, 0x08, 0x56, 0x97, 0x2e, 0x19, 0x4c, 0xd9, 0x34
 };
 
+
+#if 0
+struct ctx {
+	uint8_t past_data[8];
+	uint8_t past_data_len;
+	const uint8_t *payload;
+	uint16_t payload_len;
+	uint16_t dataop_remain;
+	uint16_t dataop_outoff;
+	uint8_t cur_iv[16];
+	uint8_t cur_cryptostream[16];
+	uint16_t off;
+	struct expanded_key aes_exp;
+};
+#endif
+
+void next_iv(struct quic_ctx *c)
+{
+	int i;
+	for (i = 15; i >= 12; i--) // increment counter
+	{
+		c->cur_iv[i]++;
+		if (c->cur_iv[i] != 0)
+		{
+			break;
+		}
+	}
+}
+
+void calc_stream(struct quic_ctx *c)
+{
+	memcpy(c->cur_cryptostream, c->cur_iv, 16);
+	aes128(&c->aes_exp, c->cur_cryptostream);
+}
+
+void next_iv_and_stream(struct quic_ctx *c)
+{
+	next_iv(c);
+	calc_stream(c);
+}
+
+int ctx_skip(struct quic_ctx *c, uint16_t cnt)
+{
+	uint8_t consumed_cryptostream = c->off - (c->off/16)*16;
+	uint8_t change;
+	uint16_t cntthis;
+	int retval = 0;
+	if (c->dataop_remain == 0)
+	{
+		c->dataop_remain = cnt;
+	}
+	else
+	{
+		cnt = c->dataop_remain;
+	}
+	cntthis = cnt;
+	if (cntthis > c->payload_len - c->off)
+	{
+		cntthis = c->payload_len - c->off;
+		retval = -EAGAIN;
+	}
+	if (cntthis + consumed_cryptostream < 16)
+	{
+		c->off += cntthis;
+		cnt -= cntthis;
+		c->dataop_remain = cnt;
+		return retval;
+	}
+	change = 16 - consumed_cryptostream; // consume this
+	c->off += change;
+	cntthis -= change;
+	cnt -= change;
+	next_iv(c);
+	while (cntthis >= 16)
+	{
+		c->off += 16;
+		cntthis -= 16;
+		cnt -= 16;
+		next_iv(c);
+	}
+	if (cntthis > 0)
+	{
+		c->off += cntthis;
+		cnt -= cntthis;
+	}
+	calc_stream(c);
+	c->dataop_remain = cnt;
+	return retval;
+}
+
+int ctx_getdata(struct quic_ctx *c, void *out, uint16_t cnt)
+{
+	uint8_t *uout = (uint8_t*)out;
+	uint16_t outoff = 0;
+	uint8_t consumed_cryptostream = c->off - (c->off/16)*16;
+	uint8_t change;
+	uint16_t cntthis;
+	int retval = 0;
+	uint16_t i;
+	if (c->dataop_remain == 0)
+	{
+		c->dataop_remain = cnt;
+		c->dataop_outoff = outoff;
+	}
+	else
+	{
+		cnt = c->dataop_remain;
+		outoff = c->dataop_outoff;
+	}
+	cntthis = cnt;
+	if (cntthis > c->payload_len - c->off)
+	{
+		cntthis = c->payload_len - c->off;
+		retval = -EAGAIN;
+	}
+	if (cntthis + consumed_cryptostream < 16)
+	{
+		for (i = 0; i < cntthis; i++)
+		{
+			uout[outoff++] =
+				c->payload[c->off++] ^
+				c->cur_cryptostream[consumed_cryptostream + i];
+			c->al_cnt++;
+		}
+		cnt -= cntthis;
+		c->dataop_remain = cnt;
+		return retval;
+	}
+	change = 16 - consumed_cryptostream; // consume this
+	for (i = 0; i < change; i++)
+	{
+		uout[outoff++] =
+			c->payload[c->off++] ^
+			c->cur_cryptostream[consumed_cryptostream + i];
+		c->al_cnt++;
+	}
+	cntthis -= change;
+	cnt -= change;
+	next_iv_and_stream(c);
+	while (cntthis >= 16)
+	{
+		for (i = 0; i < cntthis; i++)
+		{
+			uout[outoff++] =
+				c->payload[c->off++] ^
+				c->cur_cryptostream[i];
+			c->al_cnt++;
+		}
+		cntthis -= 16;
+		cnt -= 16;
+		next_iv_and_stream(c);
+	}
+	if (cntthis > 0)
+	{
+		for (i = 0; i < cntthis; i++)
+		{
+			uout[outoff++] =
+				c->payload[c->off++] ^
+				c->cur_cryptostream[i];
+			c->al_cnt++;
+		}
+		cnt -= cntthis;
+	}
+	c->dataop_remain = cnt;
+	c->dataop_outoff = outoff;
+	return retval;
+}
+
+int may_pull(struct quic_ctx *c, uint8_t cnt)
+{
+	uint8_t consumed_cryptostream = c->off - (c->off/16)*16;
+	uint8_t change;
+	uint8_t cntthis;
+	uint8_t i;
+	int retval = 0;
+	if (cnt > 8 || cnt == 0)
+	{
+		abort();
+	}
+	if (c->past_data_len >= cnt)
+	{
+		abort();
+	}
+	cnt -= c->past_data_len;
+	cntthis = cnt;
+	if (cntthis > c->payload_len - c->off)
+	{
+		cntthis = c->payload_len - c->off;
+		retval = -EAGAIN;
+	}
+	if (cntthis + consumed_cryptostream < 16)
+	{
+		for (i = 0; i < cntthis; i++)
+		{
+			c->past_data[c->past_data_len++] =
+				c->payload[c->off++] ^
+				c->cur_cryptostream[consumed_cryptostream + i];
+			c->al_cnt++;
+		}
+		cnt -= cntthis;
+		if (retval == 0)
+		{
+			c->past_data_len = 0;
+		}
+		return retval;
+	}
+	change = 16 - consumed_cryptostream; // consume this
+	for (i = 0; i < change; i++)
+	{
+		c->past_data[c->past_data_len++] =
+			c->payload[c->off++] ^
+			c->cur_cryptostream[consumed_cryptostream + i];
+		c->al_cnt++;
+	}
+	cntthis -= change;
+	cnt -= change;
+	next_iv_and_stream(c);
+#if 0
+	while (cntthis >= 16)
+	{
+		for (i = 0; i < cntthis; i++)
+		{
+			c->past_data[c->past_data_len++] =
+				c->payload[c->off++] ^
+				c->cur_cryptostream[i];
+			c->al_cnt++;
+		}
+		cntthis -= 16;
+		cnt -= 16;
+		next_iv_and_stream(c);
+	}
+#endif
+	if (cntthis > 0)
+	{
+		if (cntthis >= 16)
+		{
+			abort();
+		}
+		for (i = 0; i < cntthis; i++)
+		{
+			c->past_data[c->past_data_len++] =
+				c->payload[c->off++] ^
+				c->cur_cryptostream[i];
+			c->al_cnt++;
+		}
+		cnt -= cntthis;
+	}
+	if (retval == 0)
+	{
+		c->past_data_len = 0;
+	}
+	return retval;
+}
+
+void get_varint_slowpath(struct quic_ctx *c, uint64_t *intout)
+{
+	if (!intout)
+	{
+		return;
+	}
+	if (c->past_data_len == 0 || c->past_data_len < (1<<(c->past_data[0]>>6)))
+	{
+		abort();
+	}
+	switch (c->past_data[0]>>6)
+	{
+		case 0:
+			*intout = c->past_data[0]&0x3f;
+			break;
+		case 1:
+			*intout =
+				(((uint64_t)c->past_data[0]&0x3f) << 8) |
+				 ((uint64_t)c->past_data[1]);
+			break;
+		case 2:
+			*intout =
+				(((uint64_t)c->past_data[0]&0x3f) << 24) |
+				 (((uint64_t)c->past_data[1]) << 16) |
+				 (((uint64_t)c->past_data[2]) << 8) |
+				 ((uint64_t)c->past_data[3]);
+			break;
+		case 3:
+			*intout =
+				(((uint64_t)c->past_data[0]&0x3f) << 56) |
+				 (((uint64_t)c->past_data[1]) << 48) |
+				 (((uint64_t)c->past_data[2]) << 40) |
+				 (((uint64_t)c->past_data[3]) << 32) |
+				 (((uint64_t)c->past_data[4]) << 24) |
+				 (((uint64_t)c->past_data[5]) << 16) |
+				 (((uint64_t)c->past_data[6]) << 8) |
+				 ((uint64_t)c->past_data[7]);
+			break;
+	}
+}
+static inline void get_varint(struct quic_ctx *c, uint64_t *intout)
+{
+	if (!intout)
+	{
+		return;
+	}
+	get_varint_slowpath(c, intout);
+}
+
+int may_pull_varint(struct quic_ctx *c, uint64_t *intout)
+{
+	uint8_t consumed_cryptostream = c->off - (c->off/16)*16;
+	uint8_t change;
+	uint8_t cnt;
+	uint8_t cntthis;
+	uint8_t i;
+	int retval = 0;
+	if (c->past_data_len >= 8)
+	{
+		abort();
+	}
+	if (c->payload_len == c->off)
+	{
+		return -EAGAIN;
+	}
+	if (c->past_data_len == 0)
+	{
+		c->past_data[c->past_data_len++] = 
+				c->payload[c->off++] ^
+				c->cur_cryptostream[consumed_cryptostream + 0];
+		c->al_cnt++;
+		if (consumed_cryptostream == 15) // after the last line, it's actually 16
+		{
+			next_iv_and_stream(c);
+		}
+		consumed_cryptostream = c->off - (c->off/16)*16;
+	}
+	cnt = 1<<(c->past_data[0]>>6);
+	cnt -= c->past_data_len;
+	cntthis = cnt;
+	if (cntthis > c->payload_len - c->off)
+	{
+		cntthis = c->payload_len - c->off;
+		retval = -EAGAIN;
+	}
+	if (cntthis + consumed_cryptostream < 16)
+	{
+		for (i = 0; i < cntthis; i++)
+		{
+			c->past_data[c->past_data_len++] =
+				c->payload[c->off++] ^
+				c->cur_cryptostream[consumed_cryptostream + i];
+			c->al_cnt++;
+		}
+		cnt -= cntthis;
+		if (retval == 0)
+		{
+			get_varint(c, intout);
+			c->past_data_len = 0;
+		}
+		return retval;
+	}
+	change = 16 - consumed_cryptostream; // consume this
+	for (i = 0; i < change; i++)
+	{
+		c->past_data[c->past_data_len++] =
+			c->payload[c->off++] ^
+			c->cur_cryptostream[consumed_cryptostream + i];
+		c->al_cnt++;
+	}
+	cntthis -= change;
+	cnt -= change;
+	next_iv_and_stream(c);
+#if 0
+	while (cntthis >= 16)
+	{
+		for (i = 0; i < cntthis; i++)
+		{
+			c->past_data[c->past_data_len++] =
+				c->payload[c->off++] ^
+				c->cur_cryptostream[i];
+			c->al_cnt++;
+		}
+		cntthis -= 16;
+		cnt -= 16;
+		next_iv_and_stream(c);
+	}
+#endif
+	if (cntthis > 0)
+	{
+		if (cntthis >= 16)
+		{
+			abort();
+		}
+		for (i = 0; i < cntthis; i++)
+		{
+			c->past_data[c->past_data_len++] =
+				c->payload[c->off++] ^
+				c->cur_cryptostream[i];
+			c->al_cnt++;
+		}
+		cnt -= cntthis;
+	}
+	if (retval == 0)
+	{
+		get_varint(c, intout);
+		c->past_data_len = 0;
+	}
+	return retval;
+}
+
+#if 0
 static inline int eat_varint(struct quic_ctx *ctx, uint32_t *poff)
 {
 	uint32_t off = *poff;
@@ -657,9 +1106,272 @@ static inline int read_varint(struct quic_ctx *ctx, uint32_t *poff, uint64_t *p)
 	*p = val;
 	return 0;
 }
+#endif
+
+int tls_layer(struct quic_ctx *ctx, const char **hname, size_t *hlen)
+{
+	switch (ctx->state)
+	{
+		case 0:
+			//quic_al_cnt_reset(ctx);
+			break;
+		case 1: goto state1;
+		case 2: goto state2;
+		case 3: goto state3;
+		case 4: goto state4;
+		case 5: goto state5;
+		case 6: goto state6;
+		case 7: goto state7;
+		case 8: goto state8;
+		case 9: goto state9;
+		case 10: goto state10;
+		case 11: goto state11;
+		case 12: goto state12;
+		case 13: goto state13;
+		case 14: goto state14;
+		case 15: goto state15;
+		case 16: goto state16;
+		default: abort();
+	}
+	// 1 byte client hello (0x1)
+	// 3 bytes len
+	// 2 bytes version
+	// 32 bytes random
+	// 1 bytes session ID length
+#if 0
+	if (prepare_get_fast(ctx, off+39))
+	{
+		QD_PRINTF("ENODATA 10\n");
+		return -ENODATA;
+	}
+#endif
+state1:
+	if (may_pull(ctx, 6))
+	{
+		ctx->state = 1;
+		return -EAGAIN;
+	}
+	if (ctx->past_data[0] != 0x1)
+	{
+		return -ENOMSG;
+	}
+	ctx->tlslen =
+		(((uint32_t)ctx->past_data[1])<<16) |
+		(((uint32_t)ctx->past_data[2])<<8) |
+		ctx->past_data[3];
+#if 0
+	printf("tlslen %d\n", (int)ctx->tlslen);
+	if (ctx->tlslen + 4 > length_in_packet)
+	{
+		QD_PRINTF("ENODATA 10.5\n");
+		return -ENODATA;
+	}
+#endif
+	//tls_start_off = ctx->off;
+	quic_al_cnt_reset(ctx);
+	if (ctx->tlslen < 2 + 32 + 1)
+	{
+		QD_PRINTF("ENODATA 10.6\n");
+		return -ENODATA;
+	}
+	if (ctx->past_data[4] != 0x03 || ctx->past_data[5] != 0x03)
+	{
+		return -ENOMSG;
+	}
+	//off += 2;
+state2:
+	if (ctx_skip(ctx, 32))
+	{
+		ctx->state = 2;
+		return -EAGAIN;
+	}
+state3:
+	if (may_pull(ctx, 1))
+	{
+		ctx->state = 3;
+		return -EAGAIN;
+	}
+	ctx->session_id_length = ctx->past_data[0];
+	if (ctx->al_cnt + ctx->session_id_length + 2 > ctx->tlslen)
+	{
+		QD_PRINTF("ENODATA 10.7\n");
+		return -ENODATA;
+	}
+state4:
+	if (ctx_skip(ctx, ctx->session_id_length))
+	{
+		ctx->state = 4;
+		return -EAGAIN;
+	}
+state5:
+	if (may_pull(ctx, 2))
+	{
+		ctx->state = 5;
+		return -EAGAIN;
+	}
+	ctx->cipher_suites_length = (((uint16_t)ctx->past_data[0])<<8) | ctx->past_data[1];
+	if (ctx->al_cnt + ctx->cipher_suites_length + 1 > ctx->tlslen)
+	{
+		QD_PRINTF("ENODATA 11.5\n");
+		return -ENODATA;
+	}
+state6:
+	if (ctx_skip(ctx, ctx->cipher_suites_length))
+	{
+		ctx->state = 6;
+		return -EAGAIN;
+	}
+state7:
+	if (may_pull(ctx, 1))
+	{
+		ctx->state = 7;
+		return -EAGAIN;
+	}
+	ctx->compression_methods_length = ctx->past_data[0];
+	if (ctx->al_cnt + ctx->compression_methods_length + 2 > ctx->tlslen)
+	{
+		QD_PRINTF("ENODATA 12.5\n");
+		return -ENODATA;
+	}
+state8:
+	if (ctx_skip(ctx, ctx->compression_methods_length))
+	{
+		ctx->state = 8;
+		return -EAGAIN;
+	}
+state9:
+	if (may_pull(ctx, 2))
+	{
+		ctx->state = 9;
+		return -EAGAIN;
+	}
+	ctx->extensions_length = (((uint16_t)ctx->past_data[0])<<8) | ctx->past_data[1];
+	if (ctx->al_cnt + ctx->extensions_length > ctx->tlslen)
+	{
+		QD_PRINTF("Left side: %d\n", (int)(ctx->al_cnt + ctx->extensions_length));
+		QD_PRINTF("Right side: %d\n", (int)(ctx->tlslen));
+		QD_PRINTF("ENODATA 13.5\n");
+		return -ENODATA;
+	}
+	ctx->ext_start_al_cnt = ctx->al_cnt;
+	while (ctx->al_cnt < ctx->ext_start_al_cnt + ctx->extensions_length)
+	{
+		if (ctx->al_cnt + 4 > ctx->ext_start_al_cnt + ctx->extensions_length)
+		{
+			QD_PRINTF("ENODATA 14.3\n");
+			return -ENODATA;
+		}
+state10:
+		if (may_pull(ctx, 4))
+		{
+			ctx->state = 10;
+			return -EAGAIN;
+		}
+		ctx->ext_type = (((uint16_t)ctx->past_data[0])<<8) | ctx->past_data[1];
+		ctx->ext_len = (((uint16_t)ctx->past_data[2])<<8) | ctx->past_data[3];
+		if (ctx->al_cnt + ctx->ext_len > ctx->ext_start_al_cnt + ctx->extensions_length)
+		{
+			QD_PRINTF("ENODATA 14.7\n");
+			return -ENODATA;
+		}
+		if (ctx->ext_type != 0 || ctx->ext_len < 2)
+		{
+state11:
+			if (ctx_skip(ctx, ctx->ext_len))
+			{
+				ctx->state = 11;
+				return -EAGAIN;
+			}
+			continue;
+		}
+		ctx->ext_data_start_al_cnt = ctx->al_cnt;
+state12:
+		if (may_pull(ctx, 2))
+		{
+			ctx->state = 12;
+			return -EAGAIN;
+		}
+		ctx->sname_list_len = (((uint16_t)ctx->past_data[0])<<8) | ctx->past_data[1];
+		if (ctx->ext_len < ctx->sname_list_len + 2)
+		{
+			QD_PRINTF("ENODATA 16\n");
+			return -ENODATA;
+		}
+		while (ctx->al_cnt < ctx->ext_data_start_al_cnt + 2 + ctx->sname_list_len)
+		{
+state13:
+			if (may_pull(ctx, 1))
+			{
+				ctx->state = 13;
+				return -EAGAIN;
+			}
+			ctx->sname_type = ctx->past_data[0];
+			if (ctx->al_cnt + 2 > ctx->ext_data_start_al_cnt + 2 + ctx->sname_list_len)
+			{
+				QD_PRINTF("ENODATA 17\n");
+				return -ENODATA;
+			}
+state14:
+			if (may_pull(ctx, 2))
+			{
+				ctx->state = 14;
+				return -EAGAIN;
+			}
+			ctx->sname_len = (((uint16_t)ctx->past_data[0])<<8) | ctx->past_data[1];
+			if (ctx->al_cnt + ctx->sname_len > ctx->ext_data_start_al_cnt + 2 + ctx->sname_list_len)
+			{
+				QD_PRINTF("ENODATA 18\n");
+				return -ENODATA;
+			}
+			if (ctx->sname_type == 0)
+			{
+state15:
+				if (ctx_getdata(ctx, ctx->hostname, ctx->sname_len > (sizeof(ctx->hostname)-1) ? (sizeof(ctx->hostname)-1) : ctx->sname_len))
+				{
+					ctx->state = 15;
+					return -EAGAIN;
+				}
+				if (ctx->sname_len > (sizeof(ctx->hostname)-1))
+				{
+					ctx->hostname[sizeof(ctx->hostname)-1] = '\0';
+					*hname = ctx->hostname;
+					*hlen = sizeof(ctx->hostname)-1;
+					return -ENAMETOOLONG;
+				}
+				ctx->hostname[ctx->sname_len] = '\0';
+				*hname = ctx->hostname;
+				*hlen = ctx->sname_len;
+				return 0;
+			}
+			else
+			{
+state16:
+				if (ctx_skip(ctx, ctx->sname_len))
+				{
+					ctx->state = 16;
+					return -EAGAIN;
+				}
+			}
+		}
+	}
+#if 0
+	for (;;)
+	{
+		if (prepare_get_fast(ctx, off+1))
+		{
+			QD_PRINTF("ENODATA 13\n");
+			return -ENODATA;
+		}
+		printf("%.2x ", data[off++]);
+	}
+#endif
+
+	return -EHOSTUNREACH;
+}
 
 int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 {
+	struct quic_ctx *c = ctx;
 	const uint8_t *data = (const uint8_t*)&ctx->quic_data;
 	uint32_t off = ctx->payoff; // uint32_t for safety against overflows
 	uint64_t offset_in_packet;
@@ -686,87 +1398,97 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 	uint32_t ext_start_off; // uint32_t for safety against overflows
 	uint32_t tls_start_off; // uint32_t for safety against overflows
 
+	c->payload = data + ctx->payoff;
+	//c->payload_len = ctx->siz - ctx->payoff - 16;
+	c->payload_len = ctx->len - 16 - ctx->pnumlen;
+	if (c->payload_len > ctx->siz - ctx->payoff - 16)
+	{
+		c->payload_len = ctx->siz - ctx->payoff - 16;
+	}
+	c->off = 0;
+
 	// Eat padding, ping and ACK frames away
 	for (;;)
 	{
-		if (prepare_get_fast(ctx, off+1))
+		if (may_pull(ctx, 1))
 		{
 			QD_PRINTF("ENODATA 1\n");
 			return -ENODATA;
 		}
-		if (data[off] == 0x02 || data[off] == 0x03)
+		if (c->past_data[0] == 0x02 || c->past_data[0] == 0x03)
 		{
 			// ACK frame
 			uint64_t ack_range_cnt;
 			uint64_t i;
-			int contains_ecn = !!(data[off] == 0x03);
+			int contains_ecn = !!(c->past_data[0] == 0x03);
 			off++;
-			if (eat_varint(ctx, &off))
+			if (may_pull_varint(ctx, NULL))
 			{
 				return -ENODATA;
 			}
-			if (eat_varint(ctx, &off))
+			if (may_pull_varint(ctx, NULL))
 			{
 				return -ENODATA;
 			}
-			if (read_varint(ctx, &off, &ack_range_cnt))
+			if (may_pull_varint(ctx, &ack_range_cnt))
 			{
 				return -ENODATA;
 			}
-			if (eat_varint(ctx, &off))
+			if (may_pull_varint(ctx, NULL))
 			{
 				return -ENODATA;
 			}
 			for (i = 0; i < ack_range_cnt; i++)
 			{
-				if (eat_varint(ctx, &off))
+				if (may_pull_varint(ctx, NULL))
 				{
 					return -ENODATA;
 				}
-				if (eat_varint(ctx, &off))
+				if (may_pull_varint(ctx, NULL))
 				{
 					return -ENODATA;
 				}
 			}
 			if (contains_ecn)
 			{
-				if (eat_varint(ctx, &off))
+				if (may_pull_varint(ctx, NULL))
 				{
 					return -ENODATA;
 				}
-				if (eat_varint(ctx, &off))
+				if (may_pull_varint(ctx, NULL))
 				{
 					return -ENODATA;
 				}
-				if (eat_varint(ctx, &off))
+				if (may_pull_varint(ctx, NULL))
 				{
 					return -ENODATA;
 				}
 			}
 			continue;
 		}
-		else if (data[off] == 0x1c)
+		else if (c->past_data[0] == 0x1c)
 		{
 			// CONNECTION_CLOSE frame
 			uint64_t reason_phrase_length;
 			off++;
-			if (eat_varint(ctx, &off)) // error code
+			if (may_pull_varint(ctx, NULL)) // error code
 			{
 				return -ENODATA;
 			}
-			if (eat_varint(ctx, &off)) // frame type
+			if (may_pull_varint(ctx, NULL)) // frame type
 			{
 				return -ENODATA;
 			}
-			if (read_varint(ctx, &off, &reason_phrase_length))
+			if (may_pull_varint(ctx, &reason_phrase_length))
 			{
 				return -ENODATA;
 			}
-			if (off + reason_phrase_length > UINT16_MAX)
+			//if (off + reason_phrase_length > UINT16_MAX)
+			if (reason_phrase_length > UINT16_MAX)
 			{
 				return -ENODATA;
 			}
-			if (prepare_get_fast(ctx, off+reason_phrase_length))
+			if (ctx_skip(ctx, reason_phrase_length))
 			{
 				QD_PRINTF("ENODATA 0x1c\n");
 				return -ENODATA;
@@ -774,18 +1496,24 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 			off += reason_phrase_length;
 			continue;
 		}
-		else if (data[off] != 0x00 && data[off] != 0x01)
+		else if (c->past_data[0] != 0x00 && c->past_data[0] != 0x01)
 		{
 			break;
 		}
-		off++;
+		//off++;
 	}
-	if (data[off] != 0x06)
+	if (c->past_data[0] != 0x06)
 	{
 		return -ENOMSG;
 	}
-	off += 1;
+	//off += 1;
 
+	if (may_pull_varint(ctx, &offset_in_packet))
+	{
+		QD_PRINTF("ENODATA 2\n");
+		return -ENODATA;
+	}
+#if 0
 	if (prepare_get_fast(ctx, off+1))
 	{
 		QD_PRINTF("ENODATA 2\n");
@@ -840,7 +1568,14 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 			off += 8;
 			break;
 	}
+#endif
+	if (may_pull_varint(ctx, &length_in_packet))
+	{
+		QD_PRINTF("ENODATA 2\n");
+		return -ENODATA;
+	}
 
+#if 0
 	if (prepare_get_fast(ctx, off+1))
 	{
 		QD_PRINTF("ENODATA 6\n");
@@ -895,12 +1630,15 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 			off += 8;
 			break;
 	}
+#endif
 	if (length_in_packet > (uint64_t)UINT16_MAX ||
 	    length_in_packet > (uint64_t)INT_MAX)
 	{
 		QD_PRINTF("ENODATA 9.25\n");
 		return -ENODATA;
 	}
+#if 0
+	printf("length_in_packet %d\n", (int)length_in_packet);
 	if (((int)off) + ((int)length_in_packet) + 16 > ((int)ctx->payoff) + ((int)ctx->len) - ((int)ctx->pnumlen))
 	{
 		QD_PRINTF("Left side: %d\n", (int)(off + length_in_packet + 16));
@@ -908,174 +1646,43 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
 		QD_PRINTF("ENODATA 9.5\n");
 		return -ENODATA;
 	}
-	// 1 byte client hello (0x1)
-	// 3 bytes len
-	// 2 bytes version
-	// 32 bytes random
-	// 1 bytes session ID length
-	if (prepare_get_fast(ctx, off+39))
+#endif
+	if (((int)c->off) + ((int)length_in_packet) > ((int)c->payload_len))
 	{
-		QD_PRINTF("ENODATA 10\n");
+		QD_PRINTF("Left side: %d\n", (int)(c->off + length_in_packet));
+		QD_PRINTF("Right side: %d\n", (int)(c->payload_len));
+		QD_PRINTF("ENODATA 9.5\n");
 		return -ENODATA;
 	}
-	if (data[off] != 0x1)
-	{
-		return -ENOMSG;
-	}
-	off++;
-	tlslen =
-		(((uint32_t)data[off])<<16) |
-		(((uint32_t)data[off+1])<<8) |
-		data[off+2];
-	if (tlslen + 4 > length_in_packet)
-	{
-		QD_PRINTF("ENODATA 10.5\n");
-		return -ENODATA;
-	}
-	off += 3;
-	tls_start_off = off;
-	if (off + 2 + 32 + 1 > tls_start_off + tlslen)
-	{
-		QD_PRINTF("ENODATA 10.6\n");
-		return -ENODATA;
-	}
-	if (data[off] != 0x03 || data[off+1] != 0x03)
-	{
-		return -ENOMSG;
-	}
-	off += 2;
-	off += 32; // skip random
-	session_id_length = data[off];
-	off += 1;
-	if (off + session_id_length + 2 > tls_start_off + tlslen)
-	{
-		QD_PRINTF("ENODATA 10.7\n");
-		return -ENODATA;
-	}
-	if (prepare_get_fast(ctx, off+session_id_length+2))
-	{
-		QD_PRINTF("ENODATA 11\n");
-		return -ENODATA;
-	}
-	off += session_id_length;
-	cipher_suites_length = (((uint16_t)data[off])<<8) | data[off+1];
-	off += 2;
-	if (off + cipher_suites_length + 1 > tls_start_off + tlslen)
-	{
-		QD_PRINTF("ENODATA 11.5\n");
-		return -ENODATA;
-	}
-	if (prepare_get_fast(ctx, off+cipher_suites_length+1))
-	{
-		QD_PRINTF("ENODATA 12\n");
-		return -ENODATA;
-	}
-	off += cipher_suites_length;
-	compression_methods_length = data[off];
-	off += 1;
-	if (off + compression_methods_length + 2 > tls_start_off + tlslen)
-	{
-		QD_PRINTF("ENODATA 12.5\n");
-		return -ENODATA;
-	}
-	if (prepare_get_fast(ctx, off+compression_methods_length+2))
-	{
-		QD_PRINTF("ENODATA 13\n");
-		return -ENODATA;
-	}
-	off += compression_methods_length;
-	extensions_length = (((uint16_t)data[off])<<8) | data[off+1];
-	off += 2;
-	if (off + extensions_length > tls_start_off + tlslen)
-	{
-		QD_PRINTF("Left side: %d\n", (int)(off + extensions_length));
-		QD_PRINTF("Right side: %d\n", (int)(tls_start_off + tlslen));
-		QD_PRINTF("ENODATA 13.5\n");
-		return -ENODATA;
-	}
-	ext_start_off = off;
-	while (off < ext_start_off + extensions_length)
-	{
-		uint16_t ext_type, ext_len;
-		uint32_t ext_data_start_off;
-		uint16_t sname_list_len;
-		if (prepare_get_fast(ctx, off+4))
-		{
-			QD_PRINTF("ENODATA 14\n");
-			return -ENODATA;
-		}
-		if (off + 4 > ext_start_off + extensions_length)
-		{
-			QD_PRINTF("ENODATA 14.3\n");
-			return -ENODATA;
-		}
-		ext_type = (((uint16_t)data[off])<<8) | data[off+1];
-		off += 2;
-		ext_len = (((uint16_t)data[off])<<8) | data[off+1];
-		off += 2;
-		if (off + ext_len > ext_start_off + extensions_length)
-		{
-			QD_PRINTF("ENODATA 14.7\n");
-			return -ENODATA;
-		}
-		if (prepare_get_fast(ctx, off+ext_len))
-		{
-			QD_PRINTF("ENODATA 15\n");
-			return -ENODATA;
-		}
-		if (ext_type != 0 || ext_len < 2)
-		{
-			off += ext_len;
-			continue;
-		}
-		ext_data_start_off = off;
-		sname_list_len = (((uint16_t)data[off])<<8) | data[off+1];
-		if (ext_len < sname_list_len + 2)
-		{
-			QD_PRINTF("ENODATA 16\n");
-			return -ENODATA;
-		}
-		off += 2;
-		while (off < ext_data_start_off + 2 + sname_list_len)
-		{
-			uint8_t sname_type;
-			uint16_t sname_len;
-			sname_type = data[off];
-			off++;
-			if (off + 2 > ext_data_start_off + 2 + sname_list_len)
-			{
-				QD_PRINTF("ENODATA 17\n");
-				return -ENODATA;
-			}
-			sname_len = (((uint16_t)data[off])<<8) | data[off+1];
-			off += 2;
-			if (off + sname_len > ext_data_start_off + 2 + sname_list_len)
-			{
-				QD_PRINTF("ENODATA 18\n");
-				return -ENODATA;
-			}
-			if (sname_type == 0)
-			{
-				*hname = (const char*)&data[off];
-				*hlen = sname_len;
-				/*
-				int i;
-				QD_PRINTF("Found SNI: ");
-				for (i = 0; i < sname_len; i++)
-				{
-					QD_PRINTF("%c", data[off+i]);
-				}
-				QD_PRINTF("\n");
-				*/
-				return 0;
-			}
-			off += sname_len;
-		}
-		off = ext_data_start_off + ext_len;
-	}
-
-	return -EHOSTUNREACH;
+	c->state = 0;
+	return tls_layer(ctx, hname, hlen);
 }
+
+void official_test(void)
+{
+	struct aes_initer in;
+	const char *hname;
+	size_t hlen;
+	struct quic_ctx ctx;
+	aes_initer_init(&in);
+	printf("%d\n", quic_init(&in, &ctx, official_data, sizeof(official_data)));
+	printf("sz %zu\n", sizeof(official_data));
+	printf("Payoff %d\n", (int)ctx.payoff);
+	printf("ctx.len %d\n", (int)ctx.len);
+	printf("ctx.pnumlen %d\n", (int)ctx.pnumlen);
+	//printf("%d\n", prepare_get(&ctx, new_first_nondecrypted_off));
+	if (quic_tls_sni_detect(&ctx, &hname, &hlen) == 0)
+	{
+		size_t j;
+		printf("Found SNI: ");
+		for (j = 0; j < hlen; j++)
+		{
+			printf("%c", hname[j]);
+		}
+		printf("\n");
+	}
+}
+
 
 /*
  * The first packet sent by a client always includes a CRYPTO frame that
@@ -1124,6 +1731,20 @@ int quic_tls_sni_detect(struct quic_ctx *ctx, const char **hname, size_t *hlen)
  * a connection error.
  *
  * TODO / FIXME: PING, CONNECTION_CLOSE(0x1c), ACK
+ *
+ * ACK:
+ * type = 0x02 (no ECN) or 0x03 (yes ECN)
+ * two varints, discard
+ * one varint, ack range count (does not include "first ack range" in it)
+ * first ack range varint, discard
+ * ack ranges
+ * - each ack range contains two varints, discard
+ * ecn counts, if type 0x03, then three varints, discard
+ *
+ * PING:
+ * type = 0x01, no content
+ *
+ * CONNECTION_CLOSE(0x1c):
  */
 
 int main(int argc, char **argv)
@@ -1153,6 +1774,7 @@ int main(int argc, char **argv)
 		}
 		printf("\n");
 	}
+	printf("State %d\n", ctx.state);
 	//for (i = ctx.payoff; i < new_first_nondecrypted_off; i++)
 	for (i = ctx.payoff; i < ctx.payoff+16; i++)
 	{
@@ -1169,6 +1791,10 @@ int main(int argc, char **argv)
 		printf("Found SNI!\n");
 	}
 	//printf("Expected: 06 00 40 f1 01 00 00 ed 03 03 eb f8 fa 56 f1 29 ..\n");
+	
+	official_test();
+
+	//return 0;
 
 	// 5.2 s per 1M packets (SHA256 high performance), prepare_get
 	// 5.5 s per 1M packets (SHA256 public domain), prepare_get
