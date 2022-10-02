@@ -722,6 +722,7 @@ int ctx_getdata(struct quic_ctx *c, void *out, uint16_t cnt)
 		}
 		cnt -= cntthis;
 		c->dataop_remain = cnt;
+		c->dataop_outoff = outoff;
 		return retval;
 	}
 	change = 16 - consumed_cryptostream; // consume this
