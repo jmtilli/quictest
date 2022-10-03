@@ -105,7 +105,7 @@ int inorder_add_entry(struct inorder_ctx *ctx, uint32_t start_content_off, uint3
 			abort();
 		}
 		e2 = CONTAINER_OF(n2, struct inorder_entry, node);
-		if (e2->start_in_frame_off != e->start_in_frame_off)
+		if (e2->start_content_off != e->start_content_off)
 		{
 			abort();
 		}
