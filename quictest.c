@@ -176,6 +176,18 @@ int quic_init(struct aes_initer *in, struct quic_ctx *ctx, const uint8_t *data, 
 	{
 		return -ENODATA;
 	}
+	if (data[0] == 0)
+	{
+		for (i = 0; i < (int)siz; i++)
+		{
+			if (data[i] != 0)
+			{
+				return -ENOMSG;
+			}
+		}
+		// Contains just padding
+		return -EAGAIN;
+	}
 	if ((data[0] & 0xf0) != 0xc0)
 	{
 		return -ENOMSG;
