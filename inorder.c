@@ -47,6 +47,7 @@ struct inorder_entry {
 	uint32_t start_content_off;
 	uint32_t crypto_content_len;
 	uint32_t start_in_frame_off;
+	uint32_t quic_hdr_start_in_frame_off;
 };
 
 struct inorder_entry *inorder_entry_malloc(void)
@@ -78,7 +79,7 @@ int cmp(struct rb_tree_node *na, struct rb_tree_node *nb, void *ud)
 	return 0;
 }
 
-int inorder_add_entry(struct inorder_ctx *ctx, uint32_t start_content_off, uint32_t crypto_content_len, uint32_t start_in_frame_off, struct packet_descriptor *pkt)
+int inorder_add_entry(struct inorder_ctx *ctx, uint32_t start_content_off, uint32_t crypto_content_len, uint32_t start_in_frame_off, uint32_t quic_hdr_start_in_frame_off, struct packet_descriptor *pkt)
 {
 	struct inorder_entry *e, *e2;
 	int ret;
@@ -95,6 +96,7 @@ int inorder_add_entry(struct inorder_ctx *ctx, uint32_t start_content_off, uint3
 	e->start_content_off = start_content_off;
 	e->crypto_content_len = crypto_content_len;
 	e->start_in_frame_off = start_in_frame_off;
+	e->quic_hdr_start_in_frame_off = quic_hdr_start_in_frame_off;
 	ret = rb_tree_nocmp_insert_nonexist(&ctx->tree, cmp, NULL, &e->node); 
 	if (ret == -EEXIST)
 	{
