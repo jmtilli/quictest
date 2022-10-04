@@ -125,8 +125,8 @@ int inorder_add_entry(struct inorder_ctx *ctx, uint32_t start_content_off, uint3
 		}
 		else
 		{
-			rb_tree_nocmp_delete(&ctx->tree, &e->node);
-			inorder_entry_mfree(e);
+			rb_tree_nocmp_delete(&ctx->tree, &e2->node);
+			inorder_entry_mfree(e2);
 			ret = rb_tree_nocmp_insert_nonexist(&ctx->tree, cmp, NULL, &e->node);
 			if (ret != 0)
 			{
