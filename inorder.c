@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <stdio.h>
 #include "rbtree.h"
 #include "linkedlist.h"
 #include "containerof.h"
@@ -49,6 +50,13 @@ struct inorder_entry {
 	uint32_t start_in_frame_off;
 	uint32_t quic_hdr_start_in_frame_off;
 };
+
+void inorder_ctx_init(struct inorder_ctx *ctx)
+{
+	ctx->cur_off = 0;
+	linked_list_head_init(&ctx->pkts);
+	rb_tree_nocmp_init(&ctx->tree);
+}
 
 struct inorder_entry *inorder_entry_malloc(void)
 {
@@ -142,12 +150,19 @@ struct inorder_entry *inorder_get_entry(struct inorder_ctx *ctx)
 		n = rb_tree_nocmp_leftmost(&ctx->tree);
 		if (n == NULL)
 		{
+			printf("get_entry_ret\n");
 			return NULL;
 		}
 		e = CONTAINER_OF(n, struct inorder_entry, node);
-		if (e->start_content_off + e->crypto_content_len > ctx->cur_off)
+		if (e->start_content_off > ctx->cur_off)
+		{
+			printf("get_entry_ret\n");
+			return NULL;
+		}
+		else if (e->start_content_off + e->crypto_content_len > ctx->cur_off)
 		{
 			rb_tree_nocmp_delete(&ctx->tree, &e->node);
+			printf("get_entry_ret\n");
 			return e; // caller frees
 		}
 		else
@@ -155,6 +170,7 @@ struct inorder_entry *inorder_get_entry(struct inorder_ctx *ctx)
 			rb_tree_nocmp_delete(&ctx->tree, &e->node);
 			inorder_entry_mfree(e);
 		}
+		printf("get_entry_iter\n");
 	}
 }
 
@@ -172,4 +188,54 @@ void inorder_processed(struct inorder_ctx *ctx, struct inorder_entry *e)
 
 int main(int argc, char **argv)
 {
+	struct inorder_ctx ctx;
+	inorder_ctx_init(&ctx);
+	for (;;)
+	{
+		uint32_t start;
+		uint32_t len;
+		if (rand()%2)
+		{
+			if (ctx.cur_off < 16)
+			{
+				start = 0;
+			}
+			else
+			{
+				start = ctx.cur_off - 16;
+			}
+		}
+		else if (rand()%2)
+		{
+			start = ctx.cur_off;
+		}
+		else
+		{
+			start = ctx.cur_off + rand()%64;
+		}
+		len = rand()%64;
+		if (start <= ctx.cur_off)
+		{
+			int useful_len = len - (ctx.cur_off - start);
+			printf("immediate: start %d len %d end %d\n", (int)ctx.cur_off, useful_len, (int)ctx.cur_off+useful_len);
+			//ctx.cur_off += useful_len;
+		}
+		else
+		{
+			inorder_add_entry(&ctx, start, len, 0, 0, NULL);
+		}
+		for (;;)
+		{
+			struct inorder_entry *e = inorder_get_entry(&ctx);
+			int useful_len;
+			if (e == NULL)
+			{
+				break;
+			}
+			useful_len = e->crypto_content_len - (ctx.cur_off - e->start_content_off);
+			printf("delayed: start %d len %d end %d\n", (int)ctx.cur_off, useful_len, (int)ctx.cur_off+useful_len);
+			//ctx.cur_off += useful_len;
+		}
+		printf("iter\n");
+	}
 }
