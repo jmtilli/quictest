@@ -130,6 +130,7 @@ int inorder_add_entry(struct inorder_ctx *ctx, uint32_t start_content_off, uint3
 			ret = rb_tree_nocmp_insert_nonexist(&ctx->tree, cmp, NULL, &e->node);
 			if (ret != 0)
 			{
+				printf("Couldn't add\n");
 				abort();
 			}
 		}
@@ -217,8 +218,13 @@ int main(int argc, char **argv)
 		if (start <= ctx.cur_off)
 		{
 			int useful_len = len - (ctx.cur_off - start);
+			if (start + len < ctx.cur_off)
+			{
+				printf("immediate: useful_len < 0\n");
+				continue;
+			}
 			printf("immediate: start %d len %d end %d\n", (int)ctx.cur_off, useful_len, (int)ctx.cur_off+useful_len);
-			//ctx.cur_off += useful_len;
+			ctx.cur_off += useful_len;
 		}
 		else
 		{
@@ -233,8 +239,13 @@ int main(int argc, char **argv)
 				break;
 			}
 			useful_len = e->crypto_content_len - (ctx.cur_off - e->start_content_off);
+			if (useful_len < 0)
+			{
+				printf("delayed: useful_len < 0\n");
+				abort();
+			}
 			printf("delayed: start %d len %d end %d\n", (int)ctx.cur_off, useful_len, (int)ctx.cur_off+useful_len);
-			//ctx.cur_off += useful_len;
+			ctx.cur_off += useful_len;
 		}
 		printf("iter\n");
 	}
