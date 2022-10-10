@@ -2,19 +2,23 @@
 @strict
 
 $CC ?= "cc"
-$CFLAGS ?= ["-O4", "-march=skylake", "-msse", "-msse2", "-msse3", "-mssse3", "-msse4", "-msse4.1", "-msse4.2", "-mavx", "-mavx2", "-std=gnu11"]
+$CFLAGS ?= ["-O4", "-g", "-std=gnu11"]
+$CFLAGS_NI ?= ["-march=skylake", "-msse", "-msse2", "-msse3", "-mssse3", "-msse4", "-msse4.1", "-msse4.2", "-mavx", "-mavx2"]
 $LDFLAGS ?= []
 
-$SOURCES = ["aes.c", "aes_aesni.c", "aestest.c", "hkdf.c", "hkdftest.c", "quictest.c", "sha_hp.c", "sha_pd.c", "aesni.c"]
+$SOURCES = ["aes.c", "aestest.c", "hkdf.c", "hkdftest.c", "quictest.c", "sha_hp.c", "sha_pd.c"]
+$SOURCES_NI = ["aes_aesni.c"]
 $OBJS = @sufsuball($SOURCES, ".c", ".o")
 $DEPS = @sufsuball($SOURCES, ".c", ".d")
+$OBJS_NI = @sufsuball($SOURCES_NI, ".c", ".o")
+$DEPS_NI = @sufsuball($SOURCES_NI, ".c", ".d")
 
 @phonyrule: 'all': 'aestest' 'hkdftest' 'quictest'
 
 'aestest': 'aestest.o' 'aes.o' 'aes_aesni.o' 'aesni.o'
 @	["cc", @$CFLAGS, @$LDFLAGS, "-o", $@, @$^]
 
-'quictest': 'quictest.o' 'aes.o' 'aes_aesni.o' 'hkdf.o' 'sha_hp.o' 'sha_pd.o' 'aesni.o'
+'quictest': 'quictest.o' 'aes.o' 'aes_aesni.o' 'hkdf.o' 'sha_hp.o' 'sha_pd.o'
 @	["cc", @$CFLAGS, @$LDFLAGS, "-o", $@, @$^]
 
 'hkdftest': 'hkdftest.o' 'hkdf.o' 'sha_hp.o' 'sha_pd.o'
@@ -25,5 +29,11 @@ $DEPS = @sufsuball($SOURCES, ".c", ".d")
 
 @patrule: $(DEPS): '%.d': '%.c'
 @	[$(CC), @$(CFLAGS), "-MM", "-o", $@, $<]
+
+@patrule: $(OBJS_NI): '%.o': '%.c' '%.d'
+@	[$(CC), @$(CFLAGS), @$(CFLAGS_NI), "-c", "-o", $@, $<]
+
+@patrule: $(DEPS_NI): '%.d': '%.c'
+@	[$(CC), @$(CFLAGS), @$(CFLAGS_NI), "-MM", "-o", $@, $<]
 
 @cdepincludes @autophony @autotarget @ignore [@$(DEPS)]
