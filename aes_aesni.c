@@ -5,6 +5,8 @@
 #include <immintrin.h>
 #include "aes_aesni.h"
 
+#if defined(__amd64__) || defined(__amd64) || defined(__x86_64__) || defined(__x86_64) || defined(i386) || defined(__i386) || defined(__i386__) || defined(__IA32__) || defined(_M_IX86) || defined(__X86__) || defined(_X86_) || defined(__I86__) || defined(__386)
+
 /*
 _mm_aeskeygenassist_si128, args: key, constant
 _mm_aesenc_si128, args: block, key
@@ -208,3 +210,5 @@ void aesni_128_encrypt(const struct aesni_expanded_key *key, uint8_t block[16])
 	blockreg = _mm_aesenclast_si128(blockreg, *key10);
 	_mm_storeu_si128((__m128i*)block, blockreg);
 }
+
+#endif
