@@ -226,12 +226,16 @@ const uint8_t precalc_label_quic_iv[] = {0x00, 0x0c, 0x0d, 0x74, 0x6c, 0x73, 0x3
 const uint8_t precalc_label_quic_key[] = {0x00, 0x10, 0x0e, 0x74, 0x6c, 0x73, 0x31, 0x33, 0x20, 0x71, 0x75, 0x69, 0x63, 0x20, 0x6b, 0x65, 0x79, 0x00}; // constant
 const uint8_t initial_salt[] = {0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3, 0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8, 0x0c, 0xad, 0xcc, 0xbb, 0x7f, 0x0a}; // constant
 
-struct tls_layer {
+struct maypull_ctx {
 	uint8_t past_data[8];
 	uint8_t past_data_len;
 	uint16_t dataop_remain;
 	uint16_t dataop_outoff;
 	uint32_t al_cnt;
+};
+
+struct tls_layer {
+	struct maypull_ctx maypull;
 	uint8_t state;
 	uint32_t tlslen;
 	uint32_t ext_start_al_cnt;
@@ -284,7 +288,7 @@ struct quic_ctx {
 
 static inline void quic_al_cnt_reset(struct tls_layer *tls)
 {
-	tls->al_cnt = 0;
+	tls->maypull.al_cnt = 0;
 }
 
 #if 0
@@ -894,7 +898,7 @@ void next_iv_and_stream(struct quic_ctx *c)
 	calc_stream(c);
 }
 
-int ctx_skip(struct quic_ctx *c, struct tls_layer *t, uint16_t cnt)
+int ctx_skip(struct quic_ctx *c, struct maypull_ctx *t, uint16_t cnt)
 {
 	uint8_t consumed_cryptostream = c->off - (c->off/16)*16;
 	uint8_t change;
@@ -943,7 +947,7 @@ int ctx_skip(struct quic_ctx *c, struct tls_layer *t, uint16_t cnt)
 	return retval;
 }
 
-int ctx_getdata(struct quic_ctx *c, struct tls_layer *t, void *out, uint16_t cnt)
+int ctx_getdata(struct quic_ctx *c, struct maypull_ctx *t, void *out, uint16_t cnt)
 {
 	uint8_t *uout = (uint8_t*)out;
 	uint16_t outoff = 0;
@@ -1022,7 +1026,7 @@ int ctx_getdata(struct quic_ctx *c, struct tls_layer *t, void *out, uint16_t cnt
 	return retval;
 }
 
-int may_pull(struct quic_ctx *c, struct tls_layer *t, uint8_t cnt)
+int may_pull(struct quic_ctx *c, struct maypull_ctx *t, uint8_t cnt)
 {
 	uint8_t consumed_cryptostream = c->off - (c->off/16)*16;
 	uint8_t change;
@@ -1108,7 +1112,7 @@ int may_pull(struct quic_ctx *c, struct tls_layer *t, uint8_t cnt)
 	return retval;
 }
 
-void get_varint_slowpath(struct quic_ctx *c, struct tls_layer *t, uint64_t *intout)
+void get_varint_slowpath(struct quic_ctx *c, struct maypull_ctx *t, uint64_t *intout)
 {
 	if (!intout)
 	{
@@ -1148,7 +1152,7 @@ void get_varint_slowpath(struct quic_ctx *c, struct tls_layer *t, uint64_t *into
 			break;
 	}
 }
-static inline void get_varint(struct quic_ctx *c, struct tls_layer *t, uint64_t *intout)
+static inline void get_varint(struct quic_ctx *c, struct maypull_ctx *t, uint64_t *intout)
 {
 	if (!intout)
 	{
@@ -1157,7 +1161,7 @@ static inline void get_varint(struct quic_ctx *c, struct tls_layer *t, uint64_t 
 	get_varint_slowpath(c, t, intout);
 }
 
-int may_pull_varint(struct quic_ctx *c, struct tls_layer *t, uint64_t *intout)
+int may_pull_varint(struct quic_ctx *c, struct maypull_ctx *t, uint64_t *intout)
 {
 	uint8_t consumed_cryptostream = c->off - (c->off/16)*16;
 	uint8_t change;
@@ -1404,19 +1408,19 @@ int tls_layer(struct quic_ctx *ctx, struct tls_layer *tls, const char **hname, s
 	}
 #endif
 state1:
-	if (may_pull(ctx, tls, 6))
+	if (may_pull(ctx, &tls->maypull, 6))
 	{
 		tls->state = 1;
 		return -EAGAIN;
 	}
-	if (tls->past_data[0] != 0x1)
+	if (tls->maypull.past_data[0] != 0x1)
 	{
 		return -ENOMSG;
 	}
 	tls->tlslen =
-		(((uint32_t)tls->past_data[1])<<16) |
-		(((uint32_t)tls->past_data[2])<<8) |
-		tls->past_data[3];
+		(((uint32_t)tls->maypull.past_data[1])<<16) |
+		(((uint32_t)tls->maypull.past_data[2])<<8) |
+		tls->maypull.past_data[3];
 #if 0
 	printf("tlslen %d\n", (int)ctx->tlslen);
 	if (ctx->tlslen + 4 > length_in_packet)
@@ -1432,102 +1436,102 @@ state1:
 		QD_PRINTF("ENODATA 10.6\n");
 		return -ENODATA;
 	}
-	if (tls->past_data[4] != 0x03 || tls->past_data[5] != 0x03)
+	if (tls->maypull.past_data[4] != 0x03 || tls->maypull.past_data[5] != 0x03)
 	{
 		return -ENOMSG;
 	}
 	//off += 2;
 state2:
-	if (ctx_skip(ctx, tls, 32))
+	if (ctx_skip(ctx, &tls->maypull, 32))
 	{
 		tls->state = 2;
 		return -EAGAIN;
 	}
 state3:
-	if (may_pull(ctx, tls, 1))
+	if (may_pull(ctx, &tls->maypull, 1))
 	{
 		tls->state = 3;
 		return -EAGAIN;
 	}
-	tls->session_id_length = tls->past_data[0];
-	if (tls->al_cnt + tls->session_id_length + 2 > tls->tlslen)
+	tls->session_id_length = tls->maypull.past_data[0];
+	if (tls->maypull.al_cnt + tls->session_id_length + 2 > tls->tlslen)
 	{
 		QD_PRINTF("ENODATA 10.7\n");
 		return -ENODATA;
 	}
 state4:
-	if (ctx_skip(ctx, tls, tls->session_id_length))
+	if (ctx_skip(ctx, &tls->maypull, tls->session_id_length))
 	{
 		tls->state = 4;
 		return -EAGAIN;
 	}
 state5:
-	if (may_pull(ctx, tls, 2))
+	if (may_pull(ctx, &tls->maypull, 2))
 	{
 		tls->state = 5;
 		return -EAGAIN;
 	}
-	tls->cipher_suites_length = (((uint16_t)tls->past_data[0])<<8) | tls->past_data[1];
-	if (tls->al_cnt + tls->cipher_suites_length + 1 > tls->tlslen)
+	tls->cipher_suites_length = (((uint16_t)tls->maypull.past_data[0])<<8) | tls->maypull.past_data[1];
+	if (tls->maypull.al_cnt + tls->cipher_suites_length + 1 > tls->tlslen)
 	{
 		QD_PRINTF("ENODATA 11.5\n");
 		return -ENODATA;
 	}
 state6:
-	if (ctx_skip(ctx, tls, tls->cipher_suites_length))
+	if (ctx_skip(ctx, &tls->maypull, tls->cipher_suites_length))
 	{
 		tls->state = 6;
 		return -EAGAIN;
 	}
 state7:
-	if (may_pull(ctx, tls, 1))
+	if (may_pull(ctx, &tls->maypull, 1))
 	{
 		tls->state = 7;
 		return -EAGAIN;
 	}
-	tls->compression_methods_length = tls->past_data[0];
-	if (tls->al_cnt + tls->compression_methods_length + 2 > tls->tlslen)
+	tls->compression_methods_length = tls->maypull.past_data[0];
+	if (tls->maypull.al_cnt + tls->compression_methods_length + 2 > tls->tlslen)
 	{
 		QD_PRINTF("ENODATA 12.5\n");
 		return -ENODATA;
 	}
 state8:
-	if (ctx_skip(ctx, tls, tls->compression_methods_length))
+	if (ctx_skip(ctx, &tls->maypull, tls->compression_methods_length))
 	{
 		tls->state = 8;
 		return -EAGAIN;
 	}
 state9:
-	if (may_pull(ctx, tls, 2))
+	if (may_pull(ctx, &tls->maypull, 2))
 	{
 		tls->state = 9;
 		return -EAGAIN;
 	}
-	tls->extensions_length = (((uint16_t)tls->past_data[0])<<8) | tls->past_data[1];
-	if (tls->al_cnt + tls->extensions_length > tls->tlslen)
+	tls->extensions_length = (((uint16_t)tls->maypull.past_data[0])<<8) | tls->maypull.past_data[1];
+	if (tls->maypull.al_cnt + tls->extensions_length > tls->tlslen)
 	{
-		QD_PRINTF("Left side: %d\n", (int)(tls->al_cnt + tls->extensions_length));
+		QD_PRINTF("Left side: %d\n", (int)(tls->maypull.al_cnt + tls->extensions_length));
 		QD_PRINTF("Right side: %d\n", (int)(tls->tlslen));
 		QD_PRINTF("ENODATA 13.5\n");
 		return -ENODATA;
 	}
-	tls->ext_start_al_cnt = tls->al_cnt;
-	while (tls->al_cnt < tls->ext_start_al_cnt + tls->extensions_length)
+	tls->ext_start_al_cnt = tls->maypull.al_cnt;
+	while (tls->maypull.al_cnt < tls->ext_start_al_cnt + tls->extensions_length)
 	{
-		if (tls->al_cnt + 4 > tls->ext_start_al_cnt + tls->extensions_length)
+		if (tls->maypull.al_cnt + 4 > tls->ext_start_al_cnt + tls->extensions_length)
 		{
 			QD_PRINTF("ENODATA 14.3\n");
 			return -ENODATA;
 		}
 state10:
-		if (may_pull(ctx, tls, 4))
+		if (may_pull(ctx, &tls->maypull, 4))
 		{
 			tls->state = 10;
 			return -EAGAIN;
 		}
-		tls->ext_type = (((uint16_t)tls->past_data[0])<<8) | tls->past_data[1];
-		tls->ext_len = (((uint16_t)tls->past_data[2])<<8) | tls->past_data[3];
-		if (tls->al_cnt + tls->ext_len > tls->ext_start_al_cnt + tls->extensions_length)
+		tls->ext_type = (((uint16_t)tls->maypull.past_data[0])<<8) | tls->maypull.past_data[1];
+		tls->ext_len = (((uint16_t)tls->maypull.past_data[2])<<8) | tls->maypull.past_data[3];
+		if (tls->maypull.al_cnt + tls->ext_len > tls->ext_start_al_cnt + tls->extensions_length)
 		{
 			QD_PRINTF("ENODATA 14.7\n");
 			return -ENODATA;
@@ -1535,48 +1539,48 @@ state10:
 		if (tls->ext_type != 0 || tls->ext_len < 2)
 		{
 state11:
-			if (ctx_skip(ctx, tls, tls->ext_len))
+			if (ctx_skip(ctx, &tls->maypull, tls->ext_len))
 			{
 				tls->state = 11;
 				return -EAGAIN;
 			}
 			continue;
 		}
-		tls->ext_data_start_al_cnt = tls->al_cnt;
+		tls->ext_data_start_al_cnt = tls->maypull.al_cnt;
 state12:
-		if (may_pull(ctx, tls, 2))
+		if (may_pull(ctx, &tls->maypull, 2))
 		{
 			tls->state = 12;
 			return -EAGAIN;
 		}
-		tls->sname_list_len = (((uint16_t)tls->past_data[0])<<8) | tls->past_data[1];
+		tls->sname_list_len = (((uint16_t)tls->maypull.past_data[0])<<8) | tls->maypull.past_data[1];
 		if (tls->ext_len < tls->sname_list_len + 2)
 		{
 			QD_PRINTF("ENODATA 16\n");
 			return -ENODATA;
 		}
-		while (tls->al_cnt < tls->ext_data_start_al_cnt + 2 + tls->sname_list_len)
+		while (tls->maypull.al_cnt < tls->ext_data_start_al_cnt + 2 + tls->sname_list_len)
 		{
 state13:
-			if (may_pull(ctx, tls, 1))
+			if (may_pull(ctx, &tls->maypull, 1))
 			{
 				tls->state = 13;
 				return -EAGAIN;
 			}
-			tls->sname_type = tls->past_data[0];
-			if (tls->al_cnt + 2 > tls->ext_data_start_al_cnt + 2 + tls->sname_list_len)
+			tls->sname_type = tls->maypull.past_data[0];
+			if (tls->maypull.al_cnt + 2 > tls->ext_data_start_al_cnt + 2 + tls->sname_list_len)
 			{
 				QD_PRINTF("ENODATA 17\n");
 				return -ENODATA;
 			}
 state14:
-			if (may_pull(ctx, tls, 2))
+			if (may_pull(ctx, &tls->maypull, 2))
 			{
 				tls->state = 14;
 				return -EAGAIN;
 			}
-			tls->sname_len = (((uint16_t)tls->past_data[0])<<8) | tls->past_data[1];
-			if (tls->al_cnt + tls->sname_len > tls->ext_data_start_al_cnt + 2 + tls->sname_list_len)
+			tls->sname_len = (((uint16_t)tls->maypull.past_data[0])<<8) | tls->maypull.past_data[1];
+			if (tls->maypull.al_cnt + tls->sname_len > tls->ext_data_start_al_cnt + 2 + tls->sname_list_len)
 			{
 				QD_PRINTF("ENODATA 18\n");
 				return -ENODATA;
@@ -1584,7 +1588,7 @@ state14:
 			if (tls->sname_type == 0)
 			{
 state15:
-				if (ctx_getdata(ctx, tls, tls->hostname, tls->sname_len > (sizeof(tls->hostname)-1) ? (sizeof(tls->hostname)-1) : tls->sname_len))
+				if (ctx_getdata(ctx, &tls->maypull, tls->hostname, tls->sname_len > (sizeof(tls->hostname)-1) ? (sizeof(tls->hostname)-1) : tls->sname_len))
 				{
 					tls->state = 15;
 					return -EAGAIN;
@@ -1604,7 +1608,7 @@ state15:
 			else
 			{
 state16:
-				if (ctx_skip(ctx, tls, tls->sname_len))
+				if (ctx_skip(ctx, &tls->maypull, tls->sname_len))
 				{
 					tls->state = 16;
 					return -EAGAIN;
@@ -1669,11 +1673,12 @@ int quic_tls_sni_detect(struct inorder_ctx *inorder, struct quic_ctx *ctx, struc
 
 	while (c->off < c->payload_len)
 	{
-		struct tls_layer ts = {};
-		struct tls_layer *t = &ts;
+		struct maypull_ctx ts = {};
+		struct maypull_ctx *t = &ts;
 		// Eat padding, ping and ACK frames away
 		for (;;)
 		{
+			printf("Inner iter\n");
 			// FIXME unsafe to use past_data here
 			if (may_pull(ctx, t, 1))
 			{
@@ -1942,8 +1947,8 @@ int quic_tls_sni_detect(struct inorder_ctx *inorder, struct quic_ctx *ctx, struc
 		{
 			printf("Initing state to 0\n"); // FIXME rm
 			tls->state = 0;
-			tls->past_data_len = 0;
-			tls->dataop_remain = 0;
+			tls->maypull.past_data_len = 0;
+			tls->maypull.dataop_remain = 0;
 		}
 #if 0 // For testing
 		int old_payload_len = c->payload_len;
@@ -2155,7 +2160,7 @@ int main(int argc, char **argv)
 		}
 		printf("\n");
 	}
-	printf("State %d\n", tls.state);
+	//printf("State %d\n", tls.state);
 	//for (i = ctx.payoff; i < new_first_nondecrypted_off; i++)
 	for (i = ctx.payoff; i < ctx.payoff+16; i++)
 	{
