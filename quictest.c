@@ -1635,7 +1635,7 @@ state16:
 int quic_tls_sni_detect(struct inorder_ctx *inorder, struct quic_ctx *ctx, struct tls_layer *tls, const char **hname, size_t *hlen, uint16_t initial_off)
 {
 	struct quic_ctx *c = ctx;
-	const uint8_t *data = (const uint8_t*)&ctx->quic_data;
+	const uint8_t *data = (const uint8_t*)ctx->quic_data;
 	int ret;
 	uint32_t off = ctx->payoff; // uint32_t for safety against overflows
 	uint64_t offset_in_packet;
@@ -1678,7 +1678,6 @@ int quic_tls_sni_detect(struct inorder_ctx *inorder, struct quic_ctx *ctx, struc
 		// Eat padding, ping and ACK frames away
 		for (;;)
 		{
-			printf("Inner iter\n");
 			// FIXME unsafe to use past_data here
 			if (may_pull(ctx, t, 1))
 			{
@@ -1772,14 +1771,12 @@ int quic_tls_sni_detect(struct inorder_ctx *inorder, struct quic_ctx *ctx, struc
 			}
 			//off++;
 		}
-		printf("Checking past_data %d\n", (int)(uint8_t)t->past_data[0]); // FIXME rm
 		if (t->past_data[0] != 0x06)
 		{
 			return -ENOMSG;
 		}
 		//off += 1;
 		uint16_t stored_off = c->off;
-		printf("Checked past_data\n"); // FIXME rm
 
 		if (may_pull_varint(ctx, t, &offset_in_packet))
 		{
@@ -1942,10 +1939,10 @@ int quic_tls_sni_detect(struct inorder_ctx *inorder, struct quic_ctx *ctx, struc
 			c->off += length_in_packet;
 			continue;
 		}
-		printf("offset_in_packet is %d\n", (int)offset_in_packet);
+		//printf("offset_in_packet is %d\n", (int)offset_in_packet);
 		if (offset_in_packet == 0)
 		{
-			printf("Initing state to 0\n"); // FIXME rm
+			//printf("Initing state to 0\n"); // FIXME rm
 			tls->state = 0;
 			tls->maypull.past_data_len = 0;
 			tls->maypull.dataop_remain = 0;
@@ -2181,8 +2178,6 @@ int main(int argc, char **argv)
 	
 	official_test();
 	firefox_test();
-
-	return 0;
 
 	// 5.2 s per 1M packets (SHA256 high performance), prepare_get
 	// 5.5 s per 1M packets (SHA256 public domain), prepare_get
