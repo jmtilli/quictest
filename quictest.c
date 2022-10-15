@@ -1945,8 +1945,9 @@ int quic_tls_sni_detect(struct inorder_ctx *inorder, struct quic_ctx *ctx, struc
 			c->off += length_in_packet;
 			continue;
 		}
+		// FIXME handle case where offset_in_packet != ctx->cur_crypto_off
 		//printf("offset_in_packet is %d\n", (int)offset_in_packet);
-		if (offset_in_packet == 0)
+		if (offset_in_packet == 0 && ctx->cur_crypto_off == 0)
 		{
 			//printf("Initing state to 0\n"); // FIXME rm
 			tls->state = 0;
