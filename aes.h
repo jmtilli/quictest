@@ -18,6 +18,7 @@ struct expanded_key {
 };
 
 void calc_expanded_key(struct aes_initer *in, struct expanded_key *ex, const uint32_t key[4]);
+void free_expanded_key(struct expanded_key *ex);
 
 /*
  * State

@@ -371,6 +371,11 @@ int quic_init0(struct quic_ctx *ctx)
 	ctx->cur_crypto_off = 0;
 }
 
+void quic_free_after_init(struct quic_ctx *ctx)
+{
+	free_expanded_key(&ctx->aes_exp);
+}
+
 int quic_init(struct aes_initer *in, struct inorder_ctx *inorder, struct quic_ctx *ctx, const uint8_t *data0, size_t siz0, size_t off, size_t siz)
 {
 	uint8_t hp[16];
@@ -509,7 +514,6 @@ int quic_init(struct aes_initer *in, struct inorder_ctx *inorder, struct quic_ct
 		(((uint32_t)hp[13])<<16) |
 		(((uint32_t)hp[14])<<8) |
 		((uint32_t)hp[15]);
-	calc_expanded_key(in, &ctx->aes_exp, aes_key);
 
 	ctx->srccidoff = ctx->dstcidoff + ctx->dstcidlen+1;
 	ctx->srccidlen = (uint8_t)data[ctx->dstcidoff + ctx->dstcidlen];
@@ -613,7 +617,9 @@ int quic_init(struct aes_initer *in, struct inorder_ctx *inorder, struct quic_ct
 		return -ENODATA;
 	}
 	memcpy(mask, &data[ctx->pnumoff + 4], 16); // sample
+	calc_expanded_key(in, &ctx->aes_exp, aes_key);
 	aes128(&ctx->aes_exp, mask);
+	free_expanded_key(&ctx->aes_exp);
 	ctx->first_byte ^= (mask[0] & 0x0f);
 	ctx->pnumlen = (ctx->first_byte&3) + 1;
 
@@ -687,7 +693,6 @@ int quic_init(struct aes_initer *in, struct inorder_ctx *inorder, struct quic_ct
 		(((uint32_t)key[13])<<16) |
 		(((uint32_t)key[14])<<8) |
 		((uint32_t)key[15]);
-	calc_expanded_key(in, &ctx->aes_exp, aes_key);
 
 	// packet number length: 0 = 1 byte, 1 = 2 bytes, 2 = 3 bytes, 3 = 4 bytes
 	// this is encrypted
@@ -702,6 +707,7 @@ int quic_init(struct aes_initer *in, struct inorder_ctx *inorder, struct quic_ct
 	ctx->data0 = data0;
 	ctx->siz0 = siz0;
 	ctx->quic_data_off_in_data0 = off;
+	calc_expanded_key(in, &ctx->aes_exp, aes_key);
 	calc_stream(ctx);
 
 	if (siz <= ctx->payoff + len - ctx->pnumlen)
@@ -2012,6 +2018,7 @@ void firefox_test(void)
 			}
 			printf("\n");
 		}
+		quic_free_after_init(&ctx);
 		if (ret == 0)
 		{
 			break;
@@ -2054,6 +2061,7 @@ void official_test(void)
 			}
 			printf("\n");
 		}
+		quic_free_after_init(&ctx);
 		if (ret == 0)
 		{
 			break;
@@ -2175,6 +2183,7 @@ int main(int argc, char **argv)
 	}
 	//printf("Expected: 06 00 40 f1 01 00 00 ed 03 03 eb f8 fa 56 f1 29 ..\n");
 	inorder_ctx_free(&inorder);
+	quic_free_after_init(&ctx);
 	
 	official_test();
 	firefox_test();
@@ -2199,6 +2208,7 @@ int main(int argc, char **argv)
 		quic_tls_sni_detect(&inorder, &ctx, &tls, &hname, &hlen, 0);
 		//prepare_get(&ctx, new_first_nondecrypted_off);
 		inorder_ctx_free(&inorder);
+		quic_free_after_init(&ctx);
 	}
 	return 0;
 }

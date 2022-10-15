@@ -231,6 +231,14 @@ void calc_expanded_key(struct aes_initer *in, struct expanded_key *ex, const uin
 		ex->u.W[i] ^= ex->u.W[i-4];
 	}
 }
+void free_expanded_key(struct expanded_key *ex)
+{
+	if (ex->ni)
+	{
+		aesni_free_expanded_key(ex->u.niimpl);
+		ex->u.niimpl = NULL;
+	}
+}
 
 /*
  * State

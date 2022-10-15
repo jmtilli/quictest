@@ -6,7 +6,7 @@ $CFLAGS ?= ["-O4", "-g", "-std=gnu11"]
 $CFLAGS_NI ?= ["-march=skylake", "-msse", "-msse2", "-msse3", "-mssse3", "-msse4", "-msse4.1", "-msse4.2", "-mavx", "-mavx2"]
 $LDFLAGS ?= []
 
-$SOURCES = ["aes.c", "aestest.c", "hkdf.c", "hkdftest.c", "quictest.c", "sha_hp.c", "sha_pd.c"]
+$SOURCES = ["aes.c", "aestest.c", "hkdf.c", "hkdftest.c", "quictest.c", "sha_hp.c", "sha_pd.c", "rbtree.c"]
 $SOURCES_NI = ["aes_aesni.c"]
 $OBJS = @sufsuball($SOURCES, ".c", ".o")
 $DEPS = @sufsuball($SOURCES, ".c", ".d")
@@ -18,7 +18,7 @@ $DEPS_NI = @sufsuball($SOURCES_NI, ".c", ".d")
 'aestest': 'aestest.o' 'aes.o' 'aes_aesni.o' 'aesni.o'
 @	["cc", @$CFLAGS, @$LDFLAGS, "-o", $@, @$^]
 
-'quictest': 'quictest.o' 'aes.o' 'aes_aesni.o' 'hkdf.o' 'sha_hp.o' 'sha_pd.o'
+'quictest': 'quictest.o' 'aes.o' 'aes_aesni.o' 'hkdf.o' 'sha_hp.o' 'sha_pd.o' 'rbtree.o'
 @	["cc", @$CFLAGS, @$LDFLAGS, "-o", $@, @$^]
 
 'hkdftest': 'hkdftest.o' 'hkdf.o' 'sha_hp.o' 'sha_pd.o'
