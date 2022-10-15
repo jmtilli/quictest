@@ -73,6 +73,25 @@ void inorder_entry_mfree(struct inorder_entry *e)
 	free(e);
 }
 
+void inorder_ctx_free(struct inorder_ctx *ctx)
+{
+	while (!linked_list_is_empty(&ctx->pkts))
+	{
+		struct packet_descriptor *pkt;
+		pkt = CONTAINER_OF(ctx->pkts.node.next, struct packet_descriptor, node);
+		linked_list_delete(&pkt->node);
+		packet_mfree(pkt);
+	}
+	while (rb_tree_nocmp_root(&ctx->tree) != NULL)
+	{
+		struct rb_tree_node *root = rb_tree_nocmp_root(&ctx->tree);
+		struct inorder_entry *e;
+		e = CONTAINER_OF(root, struct inorder_entry, node);
+		rb_tree_nocmp_delete(&ctx->tree, &e->node);
+		inorder_entry_mfree(e);
+	}
+}
+
 void inorder_add_packet(struct inorder_ctx *ctx, struct packet_descriptor *pkt)
 {
 	linked_list_add_tail(&pkt->node, &ctx->pkts);
@@ -1748,12 +1767,14 @@ int quic_tls_sni_detect(struct inorder_ctx *inorder, struct quic_ctx *ctx, struc
 			}
 			//off++;
 		}
+		printf("Checking past_data %d\n", (int)(uint8_t)t->past_data[0]); // FIXME rm
 		if (t->past_data[0] != 0x06)
 		{
 			return -ENOMSG;
 		}
 		//off += 1;
 		uint16_t stored_off = c->off;
+		printf("Checked past_data\n"); // FIXME rm
 
 		if (may_pull_varint(ctx, t, &offset_in_packet))
 		{
@@ -1916,8 +1937,10 @@ int quic_tls_sni_detect(struct inorder_ctx *inorder, struct quic_ctx *ctx, struc
 			c->off += length_in_packet;
 			continue;
 		}
+		printf("offset_in_packet is %d\n", (int)offset_in_packet);
 		if (offset_in_packet == 0)
 		{
+			printf("Initing state to 0\n"); // FIXME rm
 			tls->state = 0;
 			tls->past_data_len = 0;
 			tls->dataop_remain = 0;
@@ -1961,10 +1984,12 @@ void firefox_test(void)
 	struct tls_layer tls;
 	int ret = 0;
 	aes_initer_init(&in);
+	inorder_ctx_init(&inorder);
 	for (;;)
 	{
 		printf("FIREFOX ROUND\n");
-		ret = quic_init(&in, &inorder, &ctx, quic_data + ret, sizeof(quic_data) - ret);
+		quic_init0(&ctx);
+		ret = quic_init(&in, &inorder, &ctx, quic_data, sizeof(quic_data), ret, sizeof(quic_data) - ret);
 		if (ret < 0)
 		{
 			printf("Ret %d\n", ret);
@@ -1990,6 +2015,7 @@ void firefox_test(void)
 			break;
 		}
 	}
+	inorder_ctx_free(&inorder);
 }
 void official_test(void)
 {
@@ -2001,10 +2027,12 @@ void official_test(void)
 	struct tls_layer tls;
 	int ret = 0;
 	aes_initer_init(&in);
+	inorder_ctx_init(&inorder);
 	for (;;)
 	{
 		printf("OFFICIAL ROUND\n");
-		ret = quic_init(&in, &inorder, &ctx, official_data + ret, sizeof(official_data) - ret);
+		quic_init0(&ctx);
+		ret = quic_init(&in, &inorder, &ctx, official_data, sizeof(official_data), ret, sizeof(official_data) - ret);
 		if (ret < 0)
 		{
 			break;
@@ -2029,6 +2057,7 @@ void official_test(void)
 			break;
 		}
 	}
+	inorder_ctx_free(&inorder);
 }
 
 
@@ -2107,7 +2136,9 @@ int main(int argc, char **argv)
 	const char *hname;
 	size_t hlen;
 	aes_initer_init(&in);
-	printf("%d\n", quic_init(&in, &inorder, &ctx, quic_data, sizeof(quic_data)));
+	inorder_ctx_init(&inorder);
+	quic_init0(&ctx);
+	printf("%d\n", quic_init(&in, &inorder, &ctx, quic_data, sizeof(quic_data), 0, sizeof(quic_data)));
 	printf("sz %zu\n", sizeof(quic_data));
 	printf("Payoff %d\n", (int)ctx.payoff);
 	printf("ctx.len %d\n", (int)ctx.len);
@@ -2141,11 +2172,12 @@ int main(int argc, char **argv)
 		printf("Found SNI!\n");
 	}
 	//printf("Expected: 06 00 40 f1 01 00 00 ed 03 03 eb f8 fa 56 f1 29 ..\n");
+	inorder_ctx_free(&inorder);
 	
 	official_test();
 	firefox_test();
 
-	//return 0;
+	return 0;
 
 	// 5.2 s per 1M packets (SHA256 high performance), prepare_get
 	// 5.5 s per 1M packets (SHA256 public domain), prepare_get
@@ -2161,9 +2193,12 @@ int main(int argc, char **argv)
 	// 7+1+14+20+8+1200+4+12 = 1266 bytes, 10128 bits, 2.03 Gbps
 	for (i = 0; i < 1000*1000; i++)
 	{
-		quic_init(&in, &inorder, &ctx, quic_data, sizeof(quic_data));
+		inorder_ctx_init(&inorder);
+		quic_init0(&ctx);
+		quic_init(&in, &inorder, &ctx, quic_data, sizeof(quic_data), 0, sizeof(quic_data));
 		quic_tls_sni_detect(&inorder, &ctx, &tls, &hname, &hlen, 0);
 		//prepare_get(&ctx, new_first_nondecrypted_off);
+		inorder_ctx_free(&inorder);
 	}
 	return 0;
 }
