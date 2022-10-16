@@ -265,6 +265,7 @@ struct quic_ctx {
 	uint16_t payload_len;
 	uint8_t cur_iv[16];
 	uint8_t cur_cryptostream[16];
+	uint16_t tls_limit;
 	uint16_t off;
 	//uint16_t first_nondecrypted_off;
 	//uint8_t quic_data[2048];
@@ -919,9 +920,9 @@ int ctx_skip(struct quic_ctx *c, struct maypull_ctx *t, uint16_t cnt)
 		cnt = t->dataop_remain;
 	}
 	cntthis = cnt;
-	if (cntthis > c->payload_len - c->off)
+	if (cntthis > c->tls_limit - c->off)
 	{
-		cntthis = c->payload_len - c->off;
+		cntthis = c->tls_limit - c->off;
 		retval = -EAGAIN;
 	}
 	if (cntthis + consumed_cryptostream < 16)
@@ -973,9 +974,9 @@ int ctx_getdata(struct quic_ctx *c, struct maypull_ctx *t, void *out, uint16_t c
 		outoff = t->dataop_outoff;
 	}
 	cntthis = cnt;
-	if (cntthis > c->payload_len - c->off)
+	if (cntthis > c->tls_limit - c->off)
 	{
-		cntthis = c->payload_len - c->off;
+		cntthis = c->tls_limit - c->off;
 		retval = -EAGAIN;
 	}
 	if (cntthis + consumed_cryptostream < 16)
@@ -1049,9 +1050,9 @@ int may_pull(struct quic_ctx *c, struct maypull_ctx *t, uint8_t cnt)
 	}
 	cnt -= t->past_data_len;
 	cntthis = cnt;
-	if (cntthis > c->payload_len - c->off)
+	if (cntthis > c->tls_limit - c->off)
 	{
-		cntthis = c->payload_len - c->off;
+		cntthis = c->tls_limit - c->off;
 		retval = -EAGAIN;
 	}
 	if (cntthis + consumed_cryptostream < 16)
@@ -1179,7 +1180,7 @@ int may_pull_varint(struct quic_ctx *c, struct maypull_ctx *t, uint64_t *intout)
 	{
 		abort();
 	}
-	if (c->payload_len == c->off)
+	if (c->tls_limit <= c->off)
 	{
 		return -EAGAIN;
 	}
@@ -1198,9 +1199,9 @@ int may_pull_varint(struct quic_ctx *c, struct maypull_ctx *t, uint64_t *intout)
 	cnt = 1<<(t->past_data[0]>>6);
 	cnt -= t->past_data_len;
 	cntthis = cnt;
-	if (cntthis > c->payload_len - c->off)
+	if (cntthis > c->tls_limit - c->off)
 	{
-		cntthis = c->payload_len - c->off;
+		cntthis = c->tls_limit - c->off;
 		retval = -EAGAIN;
 	}
 	if (cntthis + consumed_cryptostream < 16)
@@ -1681,6 +1682,7 @@ int quic_tls_sni_detect(struct aes_initer *in, struct inorder_ctx *inorder, stru
 	{
 		struct maypull_ctx ts = {};
 		struct maypull_ctx *t = &ts;
+		ctx->tls_limit = ctx->payload_len;
 		// Eat padding, ping and ACK frames away
 		for (;;)
 		{
@@ -1983,8 +1985,8 @@ int quic_tls_sni_detect(struct aes_initer *in, struct inorder_ctx *inorder, stru
 			}
 		}
 #else
-		// FIXME ensure we read only as many bytes as we can
 		// (length_in_packet - (inorder->cur_off - offset_in_packet))
+		ctx->tls_limit = ctx->off + length_in_packet;
 		ret = tls_layer(ctx, tls, hname, hlen);
 		if (ret != -EAGAIN)
 		{
