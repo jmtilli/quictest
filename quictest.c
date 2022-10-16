@@ -1677,6 +1677,10 @@ int quic_tls_sni_detect(struct aes_initer *in, struct inorder_ctx *inorder, stru
 		c->payload_len = ctx->siz - ctx->payoff - 16;
 	}
 	c->off = initial_off;
+	if (initial_off != 0)
+	{
+		next_iv_and_stream(c);
+	}
 
 	while (c->off < c->payload_len)
 	{
@@ -2015,8 +2019,6 @@ int quic_tls_sni_detect(struct aes_initer *in, struct inorder_ctx *inorder, stru
 				}
 				//quic_init(in, inorder, &ctx2, ctx->data0, ctx->siz0, ctx->quic_data_off_in_data0, ctx->siz);
 				quic_init(in, inorder, &ctx2, e->pkt->data, e->pkt->sz, e->quic_hdr_start_in_frame_off, e->pkt->sz - e->quic_hdr_start_in_frame_off);
-				// FIXME if start_in_frame_off != 0, do we
-				// have correct cryptostream?
 				ret2 = quic_tls_sni_detect(in, inorder, &ctx2, tls, hname, hlen, e->start_in_frame_off, 1);
 				quic_free_after_init(&ctx2);
 				if (ret2 != -EAGAIN)
