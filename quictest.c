@@ -1684,7 +1684,6 @@ int quic_tls_sni_detect(struct inorder_ctx *inorder, struct quic_ctx *ctx, struc
 		// Eat padding, ping and ACK frames away
 		for (;;)
 		{
-			// FIXME unsafe to use past_data here
 			if (may_pull(ctx, t, 1))
 			{
 				QD_PRINTF("ENODATA 1\n");
@@ -1938,18 +1937,24 @@ int quic_tls_sni_detect(struct inorder_ctx *inorder, struct quic_ctx *ctx, struc
 		}
 		if (offset_in_packet > ctx->cur_crypto_off)
 		{
-			// No useful data at all, but may use in future
-			// FIXME add to ctx
+			// No useful data at all now, but may use in future
 			// FIXME uint32 vs 64
 			inorder_add_entry(inorder, offset_in_packet, length_in_packet, stored_off, ctx->quic_data_off_in_data0, ctx->pkt);
 			c->off += length_in_packet;
 			continue;
 		}
-		// FIXME handle case where offset_in_packet != ctx->cur_crypto_off
+		if (offset_in_packet < ctx->cur_crypto_off)
+		{
+			if (ctx_skip(ctx, t, ctx->cur_crypto_off - offset_in_packet))
+			{
+				// Shouldn't happen
+				return -ENODATA;
+			}
+		}
 		//printf("offset_in_packet is %d\n", (int)offset_in_packet);
 		if (offset_in_packet == 0 && ctx->cur_crypto_off == 0)
 		{
-			//printf("Initing state to 0\n"); // FIXME rm
+			//printf("Initing state to 0\n");
 			tls->state = 0;
 			tls->maypull.past_data_len = 0;
 			tls->maypull.dataop_remain = 0;
