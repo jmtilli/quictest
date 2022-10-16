@@ -258,7 +258,7 @@ struct quic_ctx {
 	const uint8_t *data0;
 	size_t siz0; // RFE make smaller?
 	size_t quic_data_off_in_data0; // RFE make smaller?
-	uint64_t cur_crypto_off;
+	//uint64_t cur_crypto_off;
 	struct packet_descriptor *pkt;
 
 	const uint8_t *payload;
@@ -368,7 +368,7 @@ void calc_stream(struct quic_ctx *c);
 
 int quic_init0(struct quic_ctx *ctx)
 {
-	ctx->cur_crypto_off = 0;
+	//ctx->cur_crypto_off = 0;
 }
 
 void quic_free_after_init(struct quic_ctx *ctx)
@@ -1638,7 +1638,7 @@ state16:
 }
 
 // First try: initial_off == 0
-int quic_tls_sni_detect(struct inorder_ctx *inorder, struct quic_ctx *ctx, struct tls_layer *tls, const char **hname, size_t *hlen, uint16_t initial_off)
+int quic_tls_sni_detect(struct aes_initer *in, struct inorder_ctx *inorder, struct quic_ctx *ctx, struct tls_layer *tls, const char **hname, size_t *hlen, uint16_t initial_off, int recursive)
 {
 	struct quic_ctx *c = ctx;
 	const uint8_t *data = (const uint8_t*)ctx->quic_data;
@@ -1929,30 +1929,38 @@ int quic_tls_sni_detect(struct inorder_ctx *inorder, struct quic_ctx *ctx, struc
 			QD_PRINTF("ENODATA 9.5\n");
 			return -ENODATA;
 		}
-		if (offset_in_packet + length_in_packet <= ctx->cur_crypto_off)
+		if (offset_in_packet + length_in_packet <= inorder->cur_off)
 		{
 			// No useful data at all
-			c->off += length_in_packet;
+			if (ctx_skip(ctx, t, length_in_packet))
+			{
+				// Shouldn't happen
+				return -ENODATA;
+			}
 			continue;
 		}
-		if (offset_in_packet > ctx->cur_crypto_off)
+		if (offset_in_packet > inorder->cur_off)
 		{
 			// No useful data at all now, but may use in future
 			// FIXME uint32 vs 64
 			inorder_add_entry(inorder, offset_in_packet, length_in_packet, stored_off, ctx->quic_data_off_in_data0, ctx->pkt);
-			c->off += length_in_packet;
+			if (ctx_skip(ctx, t, length_in_packet))
+			{
+				// Shouldn't happen
+				return -ENODATA;
+			}
 			continue;
 		}
-		if (offset_in_packet < ctx->cur_crypto_off)
+		if (offset_in_packet < inorder->cur_off)
 		{
-			if (ctx_skip(ctx, t, ctx->cur_crypto_off - offset_in_packet))
+			if (ctx_skip(ctx, t, inorder->cur_off - offset_in_packet))
 			{
 				// Shouldn't happen
 				return -ENODATA;
 			}
 		}
 		//printf("offset_in_packet is %d\n", (int)offset_in_packet);
-		if (offset_in_packet == 0 && ctx->cur_crypto_off == 0)
+		if (offset_in_packet == 0 && inorder->cur_off == 0)
 		{
 			//printf("Initing state to 0\n");
 			tls->state = 0;
@@ -1975,14 +1983,51 @@ int quic_tls_sni_detect(struct inorder_ctx *inorder, struct quic_ctx *ctx, struc
 			}
 		}
 #else
+		// FIXME ensure we read only as many bytes as we can
+		// (length_in_packet - (inorder->cur_off - offset_in_packet))
 		ret = tls_layer(ctx, tls, hname, hlen);
 		if (ret != -EAGAIN)
 		{
 			return ret;
 		}
-		ctx->cur_crypto_off += length_in_packet;
-		struct quic_ctx ctx2 = *ctx;
-		// FIXME run through inorder ctx, need quic_init and quic_store
+		inorder->cur_off += length_in_packet - (inorder->cur_off - offset_in_packet);
+		if (recursive == 0)
+		{
+			for (;;)
+			{
+				struct quic_ctx ctx2;
+				struct inorder_entry *e = inorder_get_entry(inorder);
+				int useful_len;
+				int ret2;
+				if (e == NULL)
+				{
+					break;
+				}
+				useful_len = e->crypto_content_len - (inorder->cur_off - e->start_content_off);
+				if (useful_len < 0)
+				{
+					continue;
+					// Never happens
+					// XXX or could it still happen?
+					//abort();
+				}
+				//quic_init(in, inorder, &ctx2, ctx->data0, ctx->siz0, ctx->quic_data_off_in_data0, ctx->siz);
+				quic_init(in, inorder, &ctx2, e->pkt->data, e->pkt->sz, e->quic_hdr_start_in_frame_off, e->pkt->sz - e->quic_hdr_start_in_frame_off);
+				// FIXME if start_in_frame_off != 0, do we
+				// have correct cryptostream?
+				ret2 = quic_tls_sni_detect(in, inorder, &ctx2, tls, hname, hlen, e->start_in_frame_off, 1);
+				quic_free_after_init(&ctx2);
+				if (ret2 != -EAGAIN)
+				{
+					return ret2;
+				}
+			}
+		}
+		else
+		{
+			// recursive mode: handle only 1 item
+			return -EAGAIN;
+		}
 #endif
 	}
 	return -EAGAIN;
@@ -2014,7 +2059,7 @@ void firefox_test(void)
 		printf("ctx.len %d\n", (int)ctx.len);
 		printf("ctx.pnumlen %d\n", (int)ctx.pnumlen);
 		//printf("%d\n", prepare_get(&ctx, new_first_nondecrypted_off));
-		if (quic_tls_sni_detect(&inorder, &ctx, &tls, &hname, &hlen, 0) == 0)
+		if (quic_tls_sni_detect(&in, &inorder, &ctx, &tls, &hname, &hlen, 0, 0) == 0)
 		{
 			size_t j;
 			printf("Found SNI: ");
@@ -2057,7 +2102,7 @@ void official_test(void)
 		printf("ctx.len %d\n", (int)ctx.len);
 		printf("ctx.pnumlen %d\n", (int)ctx.pnumlen);
 		//printf("%d\n", prepare_get(&ctx, new_first_nondecrypted_off));
-		if (quic_tls_sni_detect(&inorder, &ctx, &tls, &hname, &hlen, 0) == 0)
+		if (quic_tls_sni_detect(&in, &inorder, &ctx, &tls, &hname, &hlen, 0, 0) == 0)
 		{
 			size_t j;
 			printf("Found SNI: ");
@@ -2161,7 +2206,7 @@ int main(int argc, char **argv)
 	printf("ctx.pnumlen %d\n", (int)ctx.pnumlen);
 	new_first_nondecrypted_off = ((int)ctx.payoff) + ((int)ctx.len) - ((int)ctx.pnumlen);
 	//printf("%d\n", prepare_get(&ctx, new_first_nondecrypted_off));
-	if (quic_tls_sni_detect(&inorder, &ctx, &tls, &hname, &hlen, 0) == 0)
+	if (quic_tls_sni_detect(&in, &inorder, &ctx, &tls, &hname, &hlen, 0, 0) == 0)
 	{
 		size_t j;
 		printf("Found SNI: ");
@@ -2211,7 +2256,7 @@ int main(int argc, char **argv)
 		inorder_ctx_init(&inorder);
 		quic_init0(&ctx);
 		quic_init(&in, &inorder, &ctx, quic_data, sizeof(quic_data), 0, sizeof(quic_data));
-		quic_tls_sni_detect(&inorder, &ctx, &tls, &hname, &hlen, 0);
+		quic_tls_sni_detect(&in, &inorder, &ctx, &tls, &hname, &hlen, 0, 0);
 		//prepare_get(&ctx, new_first_nondecrypted_off);
 		inorder_ctx_free(&inorder);
 		quic_free_after_init(&ctx);
