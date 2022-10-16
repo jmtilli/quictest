@@ -1787,7 +1787,7 @@ int quic_tls_sni_detect(struct aes_initer *in, struct inorder_ctx *inorder, stru
 			return -ENOMSG;
 		}
 		//off += 1;
-		uint16_t stored_off = c->off;
+		uint16_t stored_off = c->off - 1; // That 1 char is already read
 
 		if (may_pull_varint(ctx, t, &offset_in_packet))
 		{
