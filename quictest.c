@@ -2012,6 +2012,7 @@ int quic_tls_sni_detect(struct aes_initer *in, struct inorder_ctx *inorder, stru
 				useful_len = e->crypto_content_len - (inorder->cur_off - e->start_content_off);
 				if (useful_len < 0)
 				{
+					inorder_entry_mfree(e);
 					continue;
 					// Never happens
 					// XXX or could it still happen?
@@ -2021,6 +2022,7 @@ int quic_tls_sni_detect(struct aes_initer *in, struct inorder_ctx *inorder, stru
 				quic_init(in, inorder, &ctx2, e->pkt->data, e->pkt->sz, e->quic_hdr_start_in_frame_off, e->pkt->sz - e->quic_hdr_start_in_frame_off);
 				ret2 = quic_tls_sni_detect(in, inorder, &ctx2, tls, hname, hlen, e->start_in_frame_off, 1);
 				quic_free_after_init(&ctx2);
+				inorder_entry_mfree(e);
 				if (ret2 != -EAGAIN)
 				{
 					return ret2;
