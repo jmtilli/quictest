@@ -2019,7 +2019,12 @@ int quic_tls_sni_detect(struct aes_initer *in, struct inorder_ctx *inorder, stru
 					//abort();
 				}
 				//quic_init(in, inorder, &ctx2, ctx->data0, ctx->siz0, ctx->quic_data_off_in_data0, ctx->siz);
-				quic_init(in, inorder, &ctx2, e->pkt->data, e->pkt->sz, e->quic_hdr_start_in_frame_off, e->pkt->sz - e->quic_hdr_start_in_frame_off);
+				ret2 = quic_init(in, inorder, &ctx2, e->pkt->data, e->pkt->sz, e->quic_hdr_start_in_frame_off, e->pkt->sz - e->quic_hdr_start_in_frame_off);
+				if (ret2 < 0)
+				{
+					inorder_entry_mfree(e);
+					return ret2;
+				}
 				ret2 = quic_tls_sni_detect(in, inorder, &ctx2, tls, hname, hlen, e->start_in_frame_off, 1);
 				quic_free_after_init(&ctx2);
 				inorder_entry_mfree(e);
