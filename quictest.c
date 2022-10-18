@@ -2196,6 +2196,39 @@ void official_test(void)
  * CONNECTION_CLOSE(0x1c):
  */
 
+// FIXME check that all packets belong to same connection id
+
+/*
+ * Note that subsequent Initial packets might contain a Destination Connection
+ * ID other than the one used to generate the Initial secret. Therefore,
+ * attempts to decrypt these packets using the procedure above might fail
+ * unless the Initial secret is retained by the observer.
+ */
+
+/*
+ * TODO NAT:
+ * - client's IP address can change and QUIC tolerates that, AL-NAT should
+ */
+
+
+/*
+ * When an Initial packet is sent by a client that has not previously
+ * received an Initial or Retry packet from the server, the client populates
+ * the Destination Connection ID field with an unpredictable value.  This
+ * Destination Connection ID MUST be at least 8 bytes in length.  Until a
+ * packet is received from the server, the client MUST use the same Destination
+ * Connection ID value on all packets in this connection.
+ *
+ * Destination connection ID length maximum: 20
+ * Source connection ID length maximum: 20
+ *
+ * Senders MUST NOT coalesce QUIC packets with different connection IDs into a
+ * single UDP datagram. Receivers SHOULD ignore any subsequent packets with a
+ * different Destination Connection ID than the first packet in the datagram.
+ *
+ * - TODO: handle these
+ */
+
 int main(int argc, char **argv)
 {
 	struct quic_ctx ctx;
