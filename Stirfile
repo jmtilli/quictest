@@ -15,7 +15,7 @@ $DEPS_NI = @sufsuball($SOURCES_NI, ".c", ".d")
 
 @phonyrule: 'all': 'aestest' 'hkdftest' 'quictest'
 
-'aestest': 'aestest.o' 'aes.o' 'aes_aesni.o' 'aesni.o'
+'aestest': 'aestest.o' 'aes.o' 'aes_aesni.o'
 @	["cc", @$CFLAGS, @$LDFLAGS, "-o", $@, @$^]
 
 'quictest': 'quictest.o' 'aes.o' 'aes_aesni.o' 'hkdf.o' 'sha_hp.o' 'sha_pd.o' 'rbtree.o'
