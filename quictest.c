@@ -557,10 +557,10 @@ int quic_init(struct aes_initer *in, struct inorder_ctx *inorder, struct quic_ct
 				 (((uint64_t)data[tokenlenoff+1]) << 48) |
 				 (((uint64_t)data[tokenlenoff+2]) << 40) |
 				 (((uint64_t)data[tokenlenoff+3]) << 32) |
-				 (((uint64_t)data[tokenlenoff+1]) << 24) |
-				 (((uint64_t)data[tokenlenoff+2]) << 16) |
-				 (((uint64_t)data[tokenlenoff+3]) << 8) |
-				 ((uint64_t)data[tokenlenoff+1]);
+				 (((uint64_t)data[tokenlenoff+4]) << 24) |
+				 (((uint64_t)data[tokenlenoff+5]) << 16) |
+				 (((uint64_t)data[tokenlenoff+6]) << 8) |
+				 ((uint64_t)data[tokenlenoff+7]);
 			ctx->tokenoff = tokenlenoff + 8;
 			break;
 	}
@@ -604,10 +604,10 @@ int quic_init(struct aes_initer *in, struct inorder_ctx *inorder, struct quic_ct
 				 (((uint64_t)data[lenoff+1]) << 48) |
 				 (((uint64_t)data[lenoff+2]) << 40) |
 				 (((uint64_t)data[lenoff+3]) << 32) |
-				 (((uint64_t)data[lenoff+1]) << 24) |
-				 (((uint64_t)data[lenoff+2]) << 16) |
-				 (((uint64_t)data[lenoff+3]) << 8) |
-				 ((uint64_t)data[lenoff+1]);
+				 (((uint64_t)data[lenoff+4]) << 24) |
+				 (((uint64_t)data[lenoff+5]) << 16) |
+				 (((uint64_t)data[lenoff+6]) << 8) |
+				 ((uint64_t)data[lenoff+7]);
 			ctx->pnumoff = lenoff + 8;
 			break;
 	}
@@ -1364,10 +1364,10 @@ static inline int read_varint(struct quic_ctx *ctx, uint32_t *poff, uint64_t *p)
 				 (((uint64_t)data[off+1]) << 48) |
 				 (((uint64_t)data[off+2]) << 40) |
 				 (((uint64_t)data[off+3]) << 32) |
-				 (((uint64_t)data[off+1]) << 24) |
-				 (((uint64_t)data[off+2]) << 16) |
-				 (((uint64_t)data[off+3]) << 8) |
-				 ((uint64_t)data[off+1]);
+				 (((uint64_t)data[off+4]) << 24) |
+				 (((uint64_t)data[off+5]) << 16) |
+				 (((uint64_t)data[off+6]) << 8) |
+				 ((uint64_t)data[off+7]);
 			off += 8;
 			break;
 	}
@@ -1842,10 +1842,10 @@ int quic_tls_sni_detect(struct aes_initer *in, struct inorder_ctx *inorder, stru
 					 (((uint64_t)data[off+1]) << 48) |
 					 (((uint64_t)data[off+2]) << 40) |
 					 (((uint64_t)data[off+3]) << 32) |
-					 (((uint64_t)data[off+1]) << 24) |
-					 (((uint64_t)data[off+2]) << 16) |
-					 (((uint64_t)data[off+3]) << 8) |
-					 ((uint64_t)data[off+1]);
+					 (((uint64_t)data[off+4]) << 24) |
+					 (((uint64_t)data[off+5]) << 16) |
+					 (((uint64_t)data[off+6]) << 8) |
+					 ((uint64_t)data[off+7]);
 				off += 8;
 				break;
 		}
@@ -1904,10 +1904,10 @@ int quic_tls_sni_detect(struct aes_initer *in, struct inorder_ctx *inorder, stru
 					 (((uint64_t)data[off+1]) << 48) |
 					 (((uint64_t)data[off+2]) << 40) |
 					 (((uint64_t)data[off+3]) << 32) |
-					 (((uint64_t)data[off+1]) << 24) |
-					 (((uint64_t)data[off+2]) << 16) |
-					 (((uint64_t)data[off+3]) << 8) |
-					 ((uint64_t)data[off+1]);
+					 (((uint64_t)data[off+4]) << 24) |
+					 (((uint64_t)data[off+5]) << 16) |
+					 (((uint64_t)data[off+6]) << 8) |
+					 ((uint64_t)data[off+7]);
 				off += 8;
 				break;
 		}
