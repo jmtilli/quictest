@@ -36,4 +36,4 @@ $DEPS_NI = @sufsuball($SOURCES_NI, ".c", ".d")
 @patrule: $(DEPS_NI): '%.d': '%.c'
 @	[$(CC), @$(CFLAGS), @$(CFLAGS_NI), "-MM", "-o", $@, $<]
 
-@cdepincludes @autophony @autotarget @ignore [@$(DEPS)]
+@cdepincludes @autophony @autotarget @ignore [@$(DEPS), @$(DEPS_NI)]
